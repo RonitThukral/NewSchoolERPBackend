@@ -61,4 +61,6 @@ const HomeWorkSchema = new Schema(
   { timestamps: true }
 );
 
+HomeWorkSchema.index({ campusID: 1 });
+
 module.exports = mongoose.model("homeworks", HomeWorkSchema);

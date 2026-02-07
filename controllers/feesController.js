@@ -1,8 +1,9 @@
-const FeesModel = require("../models/FeesModel");
 
 exports.getAllFees = async (req, res) => {
   const { user, query } = req;
   try {
+    const FeesModel = await req.getModel('fees');
+
     // Build the campus filter based on user role
     let campusFilter = {};
     if (user.campusID) { // This is a Campus Admin
@@ -27,6 +28,7 @@ exports.getAllFees = async (req, res) => {
 
 exports.getFeeTypes = async (req, res) => {
   try {
+    const FeesModel = await req.getModel('fees');
     // This route now correctly returns the names of all fee structures
     const docs = await FeesModel.find().select("name");
     res.json(docs);
@@ -41,6 +43,7 @@ exports.getFeeById = async (req, res) => {
     return res.status(400).json({ success: false, error: "Missing URL parameter: id" });
   }
   try {
+    const FeesModel = await req.getModel('fees');
     const doc = await FeesModel.findById(req.params.id).populate('campusID', 'name').populate('applicableClasses', 'name classCode');
     if (doc) {
       return res.json(doc);
@@ -55,6 +58,7 @@ exports.getFeeById = async (req, res) => {
 
 exports.createFeeStructure = async (req, res) => {
   try {
+    const FeesModel = await req.getModel('fees');
     const feeData = req.body;
 
     // Automatically calculate totalAmount from the feeItems array
@@ -65,6 +69,11 @@ exports.createFeeStructure = async (req, res) => {
     }
 
     const doc = await FeesModel.create(feeData);
+
+    // Populate the references before sending response
+    await doc.populate('campusID', 'name');
+    await doc.populate('applicableClasses', 'name classCode');
+
     res.status(201).json({ success: true, doc });
   } catch (err) {
     console.error(err);
@@ -77,13 +86,17 @@ exports.updateFeeStructure = async (req, res) => {
     return res.status(400).json({ success: false, error: "Missing URL parameter: id" });
   }
   try {
+    const FeesModel = await req.getModel('fees');
     const updateData = req.body;
     // If feeItems are being updated, recalculate the totalAmount
     if (updateData.feeItems && Array.isArray(updateData.feeItems)) {
       updateData.totalAmount = updateData.feeItems.reduce((total, item) => total + (item.amount || 0), 0);
     }
 
-    const doc = await FeesModel.findByIdAndUpdate(req.params.id, updateData, { new: true, runValidators: true });
+    const doc = await FeesModel.findByIdAndUpdate(req.params.id, updateData, { new: true, runValidators: true })
+      .populate('campusID', 'name')
+      .populate('applicableClasses', 'name classCode');
+
     if (!doc) {
       return res.status(404).json({ success: false, error: "Fee structure not found" });
     }
@@ -99,6 +112,7 @@ exports.deleteFeeById = async (req, res) => {
     return res.status(400).json({ success: false, error: "Missing URL parameter: id" });
   }
   try {
+    const FeesModel = await req.getModel('fees');
     const doc = await FeesModel.findByIdAndDelete(req.params.id);
     if (!doc) {
       return res.status(404).json({ success: false, error: "Fee structure not found" });

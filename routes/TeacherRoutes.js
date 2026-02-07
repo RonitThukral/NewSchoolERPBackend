@@ -1,4 +1,6 @@
 const express = require("express");
+const multer = require("multer");
+const path = require("path");
 const {
   // ... (imports remain the same)
   getAllStaff,
@@ -11,11 +13,14 @@ const {
   changeTeacherPassword,
   updateTeacher,
   deleteTeacher,
+  processMappedTeacherFile,
 } = require("../controllers/teacherController");
-const TeacherModel = require("../models/TeacherModel");
 const { protect, authorize } = require("../middlewares/auth");
 
 const route = express.Router();
+
+// Multer setup
+const upload = multer({ dest: path.join(__dirname, "../uploads") });
 
 const campusCheckOptions = {
   checkCampus: true,
@@ -26,6 +31,7 @@ const campusCheckOptions = {
     }
     // For updating/deleting an existing resource by userID in params
     if ((req.method === 'PUT' || req.method === 'DELETE') && req.params.id) {
+      const TeacherModel = await req.getModel('teachers');
       const teacher = await TeacherModel.findOne({ userID: req.params.id }).select('campusID').lean();
       return teacher?.campusID;
     }
@@ -67,6 +73,15 @@ route.get("/courses/:id", protect, authorize('admin', 'teacher', {
 
 //create
 route.post("/create", protect, authorize("admin", campusCheckOptions), createTeacher);
+
+// Bulk Import
+route.post(
+  "/upload/process-mapped",
+  protect,
+  authorize("admin", { checkCampus: true, getCampusIdForResource: (req) => req.body.campusID }),
+  upload.single("file"),
+  processMappedTeacherFile
+);
 
 //login
 route.post("/signin", signInTeacher);

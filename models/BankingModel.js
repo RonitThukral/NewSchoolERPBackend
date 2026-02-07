@@ -52,4 +52,6 @@ const BankingSchema = new Schema(
 // To ensure only one default account per campus
 BankingSchema.index({ campusID: 1, isDefault: 1 }, { unique: true, partialFilterExpression: { isDefault: true } });
 
+BankingSchema.index({ campusID: 1 });
+
 module.exports = mongoose.model("banking", BankingSchema);

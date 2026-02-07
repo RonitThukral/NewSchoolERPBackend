@@ -9,7 +9,6 @@ const {
   updateClass,
   deleteClass,
 } = require("../controllers/classesController");
-const ClassesModel = require("../models/ClassesModel");
 const { protect, authorize } = require("../middlewares/auth");
 
 const route = express.Router();
@@ -23,6 +22,7 @@ const campusCheckOptions = {
     }
     // For updating/deleting an existing resource by _id in params
     if ((req.method === 'PUT' || req.method === 'DELETE') && req.params.id) {
+      const ClassesModel = await req.getModel('classes');
       const classDoc = await ClassesModel.findById(req.params.id).select('campusID').lean();
       return classDoc?.campusID;
     }

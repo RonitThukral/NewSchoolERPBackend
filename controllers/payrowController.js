@@ -1,8 +1,9 @@
-const PayrowModel = require("../models/PayRow.Model");
 
 exports.getAllPayrows = async (req, res) => {
   const { user, query } = req;
   try {
+    const PayrowModel = await req.getModel('payroll');
+
     // Build the campus filter based on user role
     let campusFilter = {};
     if (user.campusID) { // This is a Campus Admin
@@ -28,6 +29,7 @@ exports.getPayrowByCode = async (req, res) => {
     return res.status(400).send("Missing URL parameter: code");
   }
   try {
+    const PayrowModel = await req.getModel('payroll');
     const doc = await PayrowModel.findOne({ code: req.params.id });
     if (doc) {
       return res.json({ success: true, docs: doc });
@@ -42,13 +44,18 @@ exports.getPayrowByCode = async (req, res) => {
 
 exports.createPayrow = async (req, res) => {
   try {
-    const code = req.body.name.toLowerCase();
-    const isExist = await PayrowModel.findOne({ code: code });
+    const PayrowModel = await req.getModel('payroll');
+    const code = req.body.code || req.body.name.toLowerCase().replace(/\s+/g, '-');
+
+    // Check for existence WITHIN the same campus
+    const campusID = req.body.campusID;
+    const isExist = await PayrowModel.findOne({ code: code, campusID: campusID });
     if (isExist) {
-      return res.status(409).json({ success: false, error: "Position already exists" });
+      return res.status(409).json({ success: false, error: "Position already exists in this campus" });
     }
 
     const doc = await PayrowModel.create({ ...req.body, code });
+    await doc.populate('campusID', 'name');
     res.status(201).json({ success: true, doc });
   } catch (err) {
     console.error(err);
@@ -61,7 +68,8 @@ exports.updatePayrow = async (req, res) => {
     return res.status(400).send("Missing URL parameter: id");
   }
   try {
-    const doc = await PayrowModel.findByIdAndUpdate(req.params.id, req.body, { new: true, runValidators: true });
+    const PayrowModel = await req.getModel('payroll');
+    const doc = await PayrowModel.findByIdAndUpdate(req.params.id, req.body, { new: true, runValidators: true }).populate('campusID', 'name');
     if (!doc) {
       return res.status(404).json({ success: false, error: "Payrow position not found" });
     }
@@ -77,6 +85,7 @@ exports.deletePayrow = async (req, res) => {
     return res.status(400).send("Missing URL parameter: id");
   }
   try {
+    const PayrowModel = await req.getModel('payroll');
     const doc = await PayrowModel.findByIdAndDelete(req.params.id);
     if (!doc) {
       return res.status(404).json({ success: false, error: "Payrow position not found" });

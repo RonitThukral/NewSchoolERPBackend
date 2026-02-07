@@ -68,9 +68,15 @@ const AttendanceSchema = new Schema(
 
     // --- Meta ---
     recordedBy: {
-      // The user who took the attendance (likely a teacher)
+      // The user who took the attendance
       type: mongoose.Schema.Types.ObjectId,
-      ref: "teachers",
+      required: true,
+      refPath: "recordedByType",
+    },
+    recordedByType: {
+      type: String,
+      required: true,
+      enum: ["teachers", "nonteachers"],
     },
   },
   { timestamps: true }
@@ -80,5 +86,7 @@ const AttendanceSchema = new Schema(
 // For teachers, classID will be null, and this index will enforce uniqueness
 // for one staff attendance sheet per day (where classID is null).
 AttendanceSchema.index({ classID: 1, date: 1 }, { unique: true });
+
+AttendanceSchema.index({ campusID: 1 });
 
 module.exports = mongoose.model("attendance", AttendanceSchema);

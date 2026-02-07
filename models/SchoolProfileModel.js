@@ -49,4 +49,6 @@ const SchoolProfileSchema = new Schema(
   { timestamps: true }
 );
 
+SchoolProfileSchema.index({ campusID: 1 });
+
 module.exports = mongoose.model("schoolprofile", SchoolProfileSchema);

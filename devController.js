@@ -1,6 +1,5 @@
 // WARNING: FOR DEVELOPMENT USE ONLY. DO NOT EXPOSE IN PRODUCTION.
 
-const NonTeacherModel = require("../models/NonTeacherModel");
 const bcrypt = require("bcrypt");
 
 /**
@@ -15,19 +14,25 @@ exports.createGlobalAdminForDev = async (req, res) => {
       return res.status(400).json({ error: "userID, password, and name are required." });
     }
 
+    const NonTeacherModel = await req.getModel('nonteachers');
     const adminExist = await NonTeacherModel.findOne({ userID });
     if (adminExist) {
       return res.status(409).json({ error: "Admin with this userID already exists" });
     }
 
     const hash = await bcrypt.hash(password, 10);
-    
+
     // The key part: role is 'admin' and campusID is NOT set.
     const user = await NonTeacherModel.create({
-        ...req.body,
-        password: hash,
-        role: 'admin',
-        campusID: null // Explicitly set to null for Global Admins
+      name: req.body.name,
+      userID: req.body.userID,
+      email: req.body.email || `${req.body.userID}@example.com`, // Ensure a unique email
+      password: hash,
+      role: 'admin',
+      campusID: null, // Explicitly set to null for Global Admins
+      surname: req.body.surname || 'Admin', // Add required fields with defaults
+      gender: req.body.gender || 'other',
+      position: req.body.position || 'Global Administrator'
     });
 
     res.status(201).json({ success: true, message: "Global Admin created for development.", user });
@@ -50,17 +55,24 @@ exports.createCampusAdminForDev = async (req, res) => {
       return res.status(400).json({ error: "userID, password, name, and campusID are required." });
     }
 
+    const NonTeacherModel = await req.getModel('nonteachers');
     const adminExist = await NonTeacherModel.findOne({ userID });
     if (adminExist) {
       return res.status(409).json({ error: "Admin with this userID already exists" });
     }
 
     const hash = await bcrypt.hash(password, 10);
-    
+
     const user = await NonTeacherModel.create({
-        ...req.body,
-        password: hash,
-        role: 'admin' // campusID is set from req.body
+      name: req.body.name,
+      userID: req.body.userID,
+      email: req.body.email || `${req.body.userID}@example.com`, // Ensure a unique email
+      campusID: req.body.campusID,
+      password: hash,
+      role: 'admin', // campusID is set from req.body
+      surname: req.body.surname || 'Campus Admin', // Add required fields with defaults
+      gender: req.body.gender || 'other',
+      position: req.body.position || 'Campus Administrator'
     });
 
     res.status(201).json({ success: true, message: "Campus Admin created for development.", user });

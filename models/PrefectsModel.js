@@ -29,4 +29,6 @@ const PrefectsSchema = new Schema(
   { timestamps: true }
 );
 
+PrefectsSchema.index({ campusID: 1 });
+
 module.exports = mongoose.model("prefects", PrefectsSchema);

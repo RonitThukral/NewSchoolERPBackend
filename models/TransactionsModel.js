@@ -29,7 +29,7 @@ const TransactionSchema = new Schema(
       enum: ['income', 'expense'],
     },
     description: {
-        type: String,
+      type: String,
     },
 
     // --- Relational IDs ---
@@ -75,8 +75,8 @@ const TransactionSchema = new Schema(
       ref: "banking",
     },
     transactionDate: { // The actual date the transaction occurred
-        type: Date,
-        default: Date.now,
+      type: Date,
+      default: Date.now,
     },
 
     // --- Period Information ---
@@ -109,5 +109,7 @@ const TransactionSchema = new Schema(
     }
   }
 );
+
+TransactionSchema.index({ campusID: 1 });
 
 module.exports = mongoose.model("transactions", TransactionSchema);

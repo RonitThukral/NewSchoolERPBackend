@@ -59,4 +59,6 @@ const ScholarshipsSchema = new Schema(
   { timestamps: true }
 );
 
+ScholarshipsSchema.index({ campusID: 1 });
+
 module.exports = mongoose.model("scholarships", ScholarshipsSchema);

@@ -21,8 +21,14 @@ const campusCheckOptions = {
     }
     // For updating/deleting an existing resource by _id in params
     if ((req.method === 'PUT' || req.method === 'DELETE') && req.params.id) {
-      const scholarship = await ScholarshipModel.findById(req.params.id).select('campusID').lean();
-      return scholarship?.campusID;
+      try {
+        const ScholarshipModel = await req.getModel('scholarships');
+        const scholarship = await ScholarshipModel.findById(req.params.id).select('campusID').lean();
+        return scholarship?.campusID;
+      } catch (err) {
+        console.error("Error in getCampusIdForResource:", err);
+        return null;
+      }
     }
     return null;
   }

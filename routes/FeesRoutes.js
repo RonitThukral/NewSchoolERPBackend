@@ -7,7 +7,6 @@ const {
   updateFeeStructure,
   deleteFeeById,
 } = require("../controllers/feesController");
-const FeesModel = require("../models/FeesModel");
 const { protect, authorize } = require("../middlewares/auth");
 
 const route = express.Router();
@@ -21,6 +20,8 @@ const campusCheckOptions = {
     }
     // For updating/deleting an existing resource by _id in params
     if ((req.method === 'PUT' || req.method === 'DELETE') && req.params.id) {
+      // Use tenant-aware model
+      const FeesModel = await req.getModel('fees');
       const fee = await FeesModel.findById(req.params.id).select('campusID').lean();
       return fee?.campusID;
     }

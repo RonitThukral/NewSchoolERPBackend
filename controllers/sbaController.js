@@ -165,17 +165,19 @@ exports.getClassCourseResults = async (req, res) => {
   const { user } = req;
   try {
     // 1. Validate and convert IDs from string to ObjectId
-    const classObjectId = mongoose.Types.ObjectId(classId);
-    const courseObjectId = mongoose.Types.ObjectId(courseId);
+    const classObjectId = new mongoose.Types.ObjectId(classId);
+    const courseObjectId = new mongoose.Types.ObjectId(courseId);
+
+    // 2. Fetch the class to get its campusID and for authorization
+    const classDoc = await ClassesModel.findById(classObjectId).select('campusID').lean();
+    if (!classDoc) {
+      return res.status(404).json({ success: false, error: "Class not found." });
+    }
 
     // --- CAMPUS AUTHORIZATION ---
     // If the user is a campus admin, ensure the requested class belongs to their campus.
     // Global admins (no campusID) can view any campus.
     if (user.campusID) { // This check only applies to Campus Admins
-      const classDoc = await ClassesModel.findById(classObjectId).select('campusID').lean();
-      if (!classDoc) {
-        return res.status(404).json({ success: false, error: "Class not found." });
-      }
       if (classDoc.campusID.toString() !== user.campusID.toString()) {
         return res.status(403).json({ success: false, error: "You are not authorized to view results for this campus." });
       }
@@ -218,7 +220,14 @@ exports.getClassCourseResults = async (req, res) => {
     }
 
     // 4b. If record does not exist, create a new one
-    const newSbaData = { classID: classObjectId, courseID: courseObjectId, academicYear: year, term: term, scores: students.map(s => ({ studentID: s._id })) };
+    const newSbaData = {
+      classID: classObjectId,
+      courseID: courseObjectId,
+      academicYear: year,
+      term: term,
+      campusID: classDoc.campusID, // <-- Add the campusID from the class
+      scores: students.map(s => ({ studentID: s._id }))
+    };
     const createdDoc = await SBAModel.create(newSbaData);
 
     // Prepare the response with student details for the frontend UI

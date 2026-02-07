@@ -74,4 +74,6 @@ const LeaveApplicationSchema = new Schema(
   { timestamps: true }
 );
 
+LeaveApplicationSchema.index({ campusID: 1 });
+
 module.exports = mongoose.model("leaveapplication", LeaveApplicationSchema);

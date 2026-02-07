@@ -37,4 +37,6 @@ const FilesSchema = new Schema(
   { timestamps: true }
 );
 
+FilesSchema.index({ campusID: 1 });
+
 module.exports = mongoose.model("notes", FilesSchema);

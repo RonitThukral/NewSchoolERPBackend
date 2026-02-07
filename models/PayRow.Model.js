@@ -12,7 +12,7 @@ const PayrollSchema = new Schema(
     },
     code: {
       type: String,
-      unique: true, // A unique code for this pay grade, e.g., "ST-G1"
+      // unique: true, // Removed global uniqueness
     },
 
     // --- Salary Components ---
@@ -20,11 +20,23 @@ const PayrollSchema = new Schema(
       type: Number,
       required: true,
     },
-    allowance: {
+    medicalAllowance: {
       type: Number,
       default: 0,
     },
-    bonus: {
+    transportAllowance: {
+      type: Number,
+      default: 0,
+    },
+    housingAllowance: {
+      type: Number,
+      default: 0,
+    },
+    cpfContribution: { // Employer CPF Contribution
+      type: Number,
+      default: 0,
+    },
+    bonus: { // Performance Bonus
       type: Number,
       default: 0,
     },
@@ -38,5 +50,9 @@ const PayrollSchema = new Schema(
   },
   { timestamps: true }
 );
+
+// Compound index to ensure code is unique per campus, but can be repeated across campuses
+PayrollSchema.index({ code: 1, campusID: 1 }, { unique: true });
+PayrollSchema.index({ campusID: 1 });
 
 module.exports = mongoose.model("payroll", PayrollSchema);

@@ -1,13 +1,4 @@
-const StudentModel = require("../models/StudentModel");
-const AttendanceModel = require("../models/AttendenceModel");
-const CoursesModel = require("../models/CoursesModel");
-const ClassesModel = require("../models/ClassesModel");
-const CampusModel = require("../models/CampusesModel");
-const PrefectsModel = require("../models/PrefectsModel");
-const NotificationsModel = require("../models/NoticeModel");
-const ScholarshipsModel = require("../models/ScholarshipsModel");
-const TeacherModel = require("../models/TeacherModel");
-const SmsModel = require("../models/SmsModel");
+// Removed static requires as we use tenant-aware models via getModel helper.
 const { role } = require("../middlewares/variables");
 const moment = require("moment");
 
@@ -16,6 +7,10 @@ exports.getStaffDashboardCounts = async (req, res) => {
     if (!req.params.id) {
       return res.status(400).json({ success: false, error: "Missing URL parameter: staff ID" });
     }
+    const TeacherModel = await req.getModel('teachers');
+    const NotificationsModel = await req.getModel('notices');
+    const AttendanceModel = await req.getModel('attendances');
+
     const staff = await TeacherModel.findOne({
       role: role.Teacher,
       userID: req.params.id,
@@ -26,7 +21,8 @@ exports.getStaffDashboardCounts = async (req, res) => {
     }
 
     const notifications = await NotificationsModel.countDocuments({
-      publishDate: { $gte: new Date() },
+      status: 'active', // Adjust based on schema
+      publishDate: { $lte: new Date() },
     });
 
     const thirtyDaysAgo = new Date();
@@ -43,7 +39,7 @@ exports.getStaffDashboardCounts = async (req, res) => {
       success: true,
       count: {
         courses: staff?.courses?.length || 0,
-        classes: staff?.classID ? 1 : 0, // Assuming a teacher is assigned to one main class
+        classes: staff?.classID ? 1 : 0,
         attendance: attendance,
         notifications: notifications,
         events: events,
@@ -61,6 +57,10 @@ exports.getStudentDashboardCounts = async (req, res) => {
       return res.status(400).json({ success: false, error: "Missing URL parameter: student ID" });
     }
 
+    const StudentModel = await req.getModel('students');
+    const NotificationsModel = await req.getModel('notices');
+    const AttendanceModel = await req.getModel('attendances');
+
     const student = await StudentModel.findOne({
       role: role.Student,
       userID: req.params.id,
@@ -71,7 +71,8 @@ exports.getStudentDashboardCounts = async (req, res) => {
     }
 
     const notifications = await NotificationsModel.countDocuments({
-      publishDate: { $gte: new Date() },
+      status: 'active',
+      publishDate: { $lte: new Date() },
     });
 
     const thirtyDaysAgo = new Date();
@@ -100,14 +101,27 @@ exports.getStudentDashboardCounts = async (req, res) => {
 };
 
 exports.getSystemWideCounts = async (req, res) => {
-  const { user } = req;
+  const { user, query } = req;
   try {
-    // If the user is a Campus Admin, filter counts by their campus.
-    // If the user is a Global Admin (user.campusID is null), the filter is empty, so it gets all counts.
-    const campusFilter = user.campusID ? { campusID: user.campusID._id } : {};
+    const StudentModel = await req.getModel('students');
+    const TeacherModel = await req.getModel('teachers');
+    const ClassesModel = await req.getModel('classes');
+    const PrefectsModel = await req.getModel('prefects');
+    const CoursesModel = await req.getModel('courses');
+    const ScholarshipsModel = await req.getModel('scholarships');
+    const CampusModel = await req.getModel('campus');
+
+    // Build the campus filter based on user role
+    let campusFilter = {};
+    if (user.campusID) {
+      const campusId = query.campusID || (user.campusID && user.campusID._id ? user.campusID._id : user.campusID);
+      if (campusId && campusId !== 'undefined' && campusId !== 'null') campusFilter.campusID = campusId;
+    } else if (!user.campusID && query.campusID) {
+      if (query.campusID !== 'undefined' && query.campusID !== 'null') campusFilter.campusID = query.campusID;
+    }
 
     const studentQuery = { role: role.Student, enrollmentStatus: "active", ...campusFilter };
-    const staffQuery = { isStaff: true, employmentStatus: "active", ...campusFilter };
+    const staffQuery = { isStaff: true, ...campusFilter };
     const classQuery = { isArchived: false, ...campusFilter };
 
     const [
@@ -117,7 +131,6 @@ exports.getSystemWideCounts = async (req, res) => {
       staff,
       femaleStaff,
       maleStaff,
-      sms,
       classes,
       prefects,
       courses,
@@ -129,20 +142,19 @@ exports.getSystemWideCounts = async (req, res) => {
       TeacherModel.countDocuments(staffQuery),
       TeacherModel.countDocuments({ ...staffQuery, gender: "female" }),
       TeacherModel.countDocuments({ ...staffQuery, gender: "male" }),
-      SmsModel.countDocuments({}),
       ClassesModel.countDocuments(classQuery),
-      PrefectsModel.countDocuments(campusFilter), // Assuming prefects can be linked to campus via student
-      CoursesModel.countDocuments({}),
-      ScholarshipsModel.countDocuments({ isActive: true, ...campusFilter }),
+      PrefectsModel.countDocuments(campusFilter),
+      CoursesModel.countDocuments(campusFilter),
+      ScholarshipsModel.countDocuments({ ...campusFilter }),
     ]);
 
-    // Global admin sees all campuses, Campus admin sees 1.
-    const campuses = !user.campusID ? await CampusModel.countDocuments({}) : 1;
+    // Global admin sees all campuses count, Campus admin sees 1.
+    const campusesCount = !user.campusID ? await CampusModel.countDocuments({}) : 1;
 
     res.json({
       students,
       staff,
-      campuses,
+      campuses: campusesCount,
       scholarships,
       classes,
       courses,
@@ -151,11 +163,9 @@ exports.getSystemWideCounts = async (req, res) => {
       maleStudents,
       femaleStaff,
       maleStaff,
-      smsCount: sms,
-      // Birthday and registration counts can be added here with more complex queries if needed
     });
   } catch (err) {
-    console.error(err);
+    console.error("Dashboard Stats Error:", err);
     res.status(500).json({ success: false, error: err.message || "Server Error" });
   }
 };

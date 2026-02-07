@@ -148,7 +148,7 @@ const TeacherSchema = new Schema(
     },
     resetPassowrdToken: String,
     resetPasswordExpires: Date,
-     // Stores push notification tokens for different devices/platforms
+    // Stores push notification tokens for different devices/platforms
     pushTokens: {
       type: [String],
       default: [],
@@ -157,4 +157,6 @@ const TeacherSchema = new Schema(
   { timestamps: true }
 );
 
-module.exports = mongoose.model("teachers", TeacherSchema, "accounts");
+TeacherSchema.index({ campusID: 1 });
+
+module.exports = mongoose.model("teachers", TeacherSchema);

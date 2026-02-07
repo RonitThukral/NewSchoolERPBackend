@@ -63,4 +63,6 @@ const StoreSalesSchema = new Schema(
   { timestamps: true }
 );
 
+StoreSalesSchema.index({ campusID: 1 });
+
 module.exports = mongoose.model("storesales", StoreSalesSchema);

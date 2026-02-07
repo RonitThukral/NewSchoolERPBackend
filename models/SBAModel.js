@@ -73,7 +73,7 @@ const SBASchema = new Schema(
 );
 
 // Mongoose pre-save hook to automatically calculate the total score for each student
-SBASchema.pre('save', function(next) {
+SBASchema.pre('save', function (next) {
   // 'this' refers to the document being saved
   if (this.isModified('scores')) {
     this.scores.forEach(score => {
@@ -85,5 +85,7 @@ SBASchema.pre('save', function(next) {
 
 // Ensure only one SBA record per class, per course, per term
 SBASchema.index({ classID: 1, courseID: 1, academicYear: 1, term: 1 }, { unique: true });
+
+SBASchema.index({ campusID: 1 });
 
 module.exports = mongoose.model("sba", SBASchema);

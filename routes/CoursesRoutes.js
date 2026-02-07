@@ -10,7 +10,6 @@ const {
   deleteCourse,
 } = require("../controllers/coursesController");
 const { protect, authorize } = require("../middlewares/auth");
-const ClassesModel = require("../models/ClassesModel");
 
 const route = express.Router();
 
@@ -35,6 +34,7 @@ route.post(
   authorize("admin", {
     checkCampus: true,
     getCampusIdForResource: async (req) => {
+      const ClassesModel = await req.getModel('classes');
       const classDoc = await ClassesModel.findById(req.body.classID).select('campusID').lean();
       return classDoc?.campusID;
     }

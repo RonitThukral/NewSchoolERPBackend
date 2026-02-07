@@ -59,4 +59,6 @@ const StoreItemSchema = new Schema(
   { timestamps: true }
 );
 
+StoreItemSchema.index({ campusID: 1 });
+
 module.exports = mongoose.model("storeitems", StoreItemSchema);

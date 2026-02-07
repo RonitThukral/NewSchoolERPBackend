@@ -1,17 +1,17 @@
-const TeacherModel = require("../models/TeacherModel");
-const PayrowModel = require("../models/PayRow.Model");
 const bcrypt = require("bcrypt");
 const { login, changePassword } = require("../middlewares/validate");
 const { role } = require("../middlewares/variables");
-const { sendRegisterMessageToStaff } = require("../services/SmsService");
+const fs = require("fs");
+const xlsx = require("xlsx");
 
 exports.getAllStaff = async (req, res) => {
   const { user, query } = req;
   try {
+    const TeacherModel = await req.getModel('teachers');
     // Build the campus filter based on user role
     let campusFilter = {};
     if (user.campusID) { // This is a Campus Admin
-      const campusId = query.campusID || user.campusID?._id;
+      const campusId = query.campusID || (user.campusID && user.campusID._id ? user.campusID._id : user.campusID);
       if (campusId) campusFilter.campusID = campusId;
     } else if (!user.campusID && query.campusID) { // This is a Global Admin filtering by campus
       campusFilter.campusID = query.campusID;
@@ -27,24 +27,31 @@ exports.getAllStaff = async (req, res) => {
 exports.getAllTeachers = async (req, res) => {
   const { user, query } = req;
   try {
+    const TeacherModel = await req.getModel('teachers');
     // Build the campus filter based on user role
     let campusFilter = {};
-    if (user.campusID) { // This is a Campus Admin
-      const campusId = query.campusID || user.campusID?._id;
-      if (campusId) campusFilter.campusID = campusId;
-    } else if (!user.campusID && query.campusID) { // This is a Global Admin filtering by campus
+    if (user.role === 'admin' && user.campusID) {
+      // This is a Campus Admin - restrict to their assigned campus only
+      campusFilter.campusID = user.campusID._id || user.campusID;
+    } else if (query.campusID && query.campusID !== 'undefined' && query.campusID !== 'null') {
+      // This is a Super Admin or similar, filtering by a specific campus
       campusFilter.campusID = query.campusID;
     }
 
-    const data = await TeacherModel.find({ role: role.Teacher, ...campusFilter }).sort({ createdAt: "desc" });
+    const data = await TeacherModel.find({ role: role.Teacher, ...campusFilter })
+      .select('name surname userID role campusID email profileUrl')
+      .sort({ createdAt: "desc" })
+      .lean();
     res.json(data);
   } catch (err) {
+    console.error("Fetch Teachers Error:", err);
     res.status(500).json({ success: false, error: err.message });
   }
 };
 
 exports.getTeacherById = async (req, res) => {
   try {
+    const TeacherModel = await req.getModel('teachers');
     const user = await TeacherModel.findOne({ userID: req.params.id });
     if (user) {
       return res.json({ success: true, teacher: user });
@@ -60,7 +67,8 @@ exports.getTeacherBankDetails = async (req, res) => {
     return res.status(400).send("Missing URL parameter: bank");
   }
 
-  const getSalary = async (positionCode) => {
+  const getSalary = async (positionCode, req) => {
+    const PayrowModel = await req.getModel('payrows');
     const payrow = await PayrowModel.findOne({ code: positionCode });
     if (payrow) {
       return Number(payrow.salary || 0) + Number(payrow.allowance || 0) + Number(payrow.bonus || 0);
@@ -69,13 +77,14 @@ exports.getTeacherBankDetails = async (req, res) => {
   };
 
   try {
+    const TeacherModel = await req.getModel('teachers');
     const users = await TeacherModel.find({ isStaff: true, bank: req.params.id });
     const data = await Promise.all(
       users.map(async (e) => ({
         bank: e.bank,
         name: `${e.name} ${e.surname}`,
         accountNumber: e.accountNumber,
-        salary: await getSalary(e.position),
+        salary: await getSalary(e.position, req),
         _id: e._id,
       }))
     );
@@ -87,6 +96,7 @@ exports.getTeacherBankDetails = async (req, res) => {
 
 exports.getTeacherCourses = async (req, res) => {
   try {
+    const TeacherModel = await req.getModel('teachers');
     const user = await TeacherModel.findOne({ userID: req.params.id, role: role.Teacher });
     if (user) {
       return res.json({ success: true, docs: user?.courses });
@@ -99,6 +109,7 @@ exports.getTeacherCourses = async (req, res) => {
 
 exports.createTeacher = async (req, res) => {
   try {
+    const TeacherModel = await req.getModel('teachers');
     const { telephone } = req.body;
 
     const telephoneExist = await TeacherModel.findOne({ telephone });
@@ -127,13 +138,10 @@ exports.createTeacher = async (req, res) => {
       ...req.body,
       password: hash,
       userID: userID,
-      role: req.body.position,
+      role: req.body.role || "teacher",
     };
 
     const user = await TeacherModel.create(userData);
-    if (user.telephone) {
-      sendRegisterMessageToStaff(user.telephone);
-    }
     res.status(201).json({ success: true, teacher: user });
   } catch (err) {
     if (err.code === 11000) {
@@ -150,6 +158,7 @@ exports.signInTeacher = async (req, res) => {
   }
 
   try {
+    const TeacherModel = await req.getModel('teachers');
     const user = await TeacherModel.findOne({ userID: req.body.userID });
     if (user) {
       const isMatch = await bcrypt.compare(req.body.password, user.password);
@@ -170,6 +179,7 @@ exports.changeTeacherPassword = async (req, res) => {
   }
 
   try {
+    const TeacherModel = await req.getModel('teachers');
     const user = await TeacherModel.findOne({ userID: req.params.id });
     if (!user) {
       return res.status(404).json({ success: false, error: "Teacher does not exist" });
@@ -190,6 +200,7 @@ exports.changeTeacherPassword = async (req, res) => {
 
 exports.updateTeacher = async (req, res) => {
   try {
+    const TeacherModel = await req.getModel('teachers');
     const doc = await TeacherModel.findOneAndUpdate({ userID: req.params.id }, req.body, { new: true });
     if (doc) {
       return res.json({ success: true, doc });
@@ -205,6 +216,7 @@ exports.updateTeacher = async (req, res) => {
 
 exports.deleteTeacher = async (req, res) => {
   try {
+    const TeacherModel = await req.getModel('teachers');
     const doc = await TeacherModel.findOneAndDelete({ userID: req.params.id });
     if (!doc) {
       return res.status(404).json({ success: false, error: "Teacher not found" });
@@ -212,5 +224,143 @@ exports.deleteTeacher = async (req, res) => {
     res.json({ success: true, message: "Teacher deleted successfully", doc });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
+  }
+};
+
+exports.processMappedTeacherFile = async (req, res) => {
+  if (!req.file) {
+    return res.status(400).json({ success: false, error: "No file uploaded." });
+  }
+
+  // Determine Campus ID
+  let targetCampusID = null;
+  if (req.user.campusID) {
+    targetCampusID = req.user.campusID._id;
+  } else if (req.body.campusID) {
+    targetCampusID = req.body.campusID;
+  }
+
+  const { columnMapping } = req.body;
+  let debugInfo = { step: 'start' };
+
+  try {
+    const mapping = columnMapping ? JSON.parse(columnMapping) : null;
+    const workbook = xlsx.readFile(req.file.path);
+    const sheetName = workbook.SheetNames[0];
+    const worksheet = workbook.Sheets[sheetName];
+    // Use defval to ensure we get properties for empty cells if headers exist
+    const data = xlsx.utils.sheet_to_json(worksheet, { defval: "" });
+
+    debugInfo.rowsRead = data.length;
+    debugInfo.sheetName = sheetName;
+
+    const TeacherModel = await req.getModel('teachers');
+    const teachersToCreate = [];
+    let teacherCounter = await TeacherModel.countDocuments({});
+
+    const currentYear = new Date().getFullYear();
+
+    for (const row of data) {
+      // Skip row if it looks empty
+      if (Object.keys(row).length === 0) continue;
+
+      const teacherObject = {
+        role: "teacher", // Default role
+        nextofKin: {}
+      };
+
+      if (targetCampusID) {
+        teacherObject.campusID = targetCampusID;
+      }
+
+      // If mapping provided, use it. Otherwise use auto-mapping.
+      // const source = mapping || row; 
+
+      if (mapping) {
+        for (const fileHeader in mapping) {
+          const modelField = mapping[fileHeader];
+          if (row[fileHeader] !== undefined && modelField) {
+            if (modelField.startsWith("nextofKin.")) {
+              const nokField = modelField.split(".")[1];
+              teacherObject.nextofKin[nokField] = row[fileHeader];
+            } else {
+              teacherObject[modelField] = row[fileHeader];
+            }
+          }
+        }
+      } else {
+        for (const key in row) {
+          if (key.startsWith("nextofKin.")) {
+            const nokField = key.split(".")[1];
+            teacherObject.nextofKin[nokField] = row[key];
+          } else {
+            teacherObject[key] = row[key];
+          }
+        }
+      }
+
+      // --- Fix Booleans & Data Types ---
+      ['isStaff', 'ssnit'].forEach(field => {
+        if (typeof teacherObject[field] === 'string') {
+          teacherObject[field] = teacherObject[field].toLowerCase() === 'true';
+        }
+      });
+
+      // --- Auto-generate required fields if not mapped ---
+      if (!teacherObject.userID) {
+        teacherCounter++;
+        teacherObject.userID = `TK${currentYear}${10 + teacherCounter}`;
+      }
+
+      if (!teacherObject.password) {
+        const hash = await bcrypt.hash(teacherObject.userID, 10);
+        teacherObject.password = hash;
+      }
+
+      // Fallback for campusID if not set by admin but present in file
+      if (!teacherObject.campusID && row['campusID']) {
+        teacherObject.campusID = row['campusID'];
+      }
+
+      teachersToCreate.push(teacherObject);
+    }
+
+    debugInfo.teachersPrepared = teachersToCreate.length;
+
+    if (teachersToCreate.length > 0) {
+      let result = [];
+      try {
+        result = await TeacherModel.insertMany(teachersToCreate, { ordered: false });
+      } catch (insertError) {
+        console.error("Bulk Insert Error detail:", insertError);
+        // Mongoose insertMany with ordered:false throws if any error, but attaches insertedDocs
+        if (insertError.insertedDocs) {
+          result = insertError.insertedDocs;
+        } else {
+          // If no docs inserted at all (all failed), result stays []
+          debugInfo.insertError = insertError.message;
+        }
+      }
+
+      res.status(201).json({
+        success: true,
+        message: `${result.length} teachers created successfully. (Read ${data.length} rows)`,
+        createdCount: result.length,
+        debug: debugInfo
+      });
+    } else {
+      res.status(400).json({ success: false, error: "No valid teacher data processed.", debug: debugInfo });
+    }
+
+  } catch (error) {
+    console.error("Error processing mapped file:", error);
+    if (error.code === 11000) {
+      return res.status(409).json({ success: false, error: "Import failed. Duplicate User ID/Email/Phone found.", debug: debugInfo });
+    }
+    res.status(500).json({ success: false, error: "Processing error: " + error.message, debug: debugInfo });
+  } finally {
+    if (req.file && fs.existsSync(req.file.path)) {
+      try { fs.unlinkSync(req.file.path); } catch (e) { }
+    }
   }
 };

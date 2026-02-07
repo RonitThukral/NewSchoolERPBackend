@@ -1,55 +1,64 @@
-const AttendanceModel = require("../models/AttendenceModel");
-const StudentModel = require("../models/StudentModel");
-const { role } = require("../middlewares/variables");
-const CoursesModel = require("../models/CoursesModel");
-const ClassesModel = require("../models/ClassesModel"); // Import ClassesModel
 const mongoose = require("mongoose");
 const { isAuthorized } = require("./sbaController"); // Re-using the authorization logic
 
 exports.getAllAttendance = async (req, res) => {
   const { user, query } = req;
   try {
-    // Build the campus filter based on user role
-    let campusFilter = {};
-    if (user.campusID) { // This is a Campus Admin
-      // Admins default to their own campus, but can view others via query param
-      const campusId = query.campusID || user.campusID?._id;
-      if (campusId) campusFilter.campusID = campusId;
-    } else if (!user.campusID && query.campusID) { // This is a Global Admin filtering by campus
-      // Super-admins can filter by any campus
-      campusFilter.campusID = query.campusID;
+    const AttendanceModel = await req.getModel('attendance');
+
+    // Build filter based on query and user permissions
+    let filter = {};
+
+    // 1. Campus Isolation
+    if (user.campusID) {
+      filter.campusID = user.campusID._id || user.campusID;
+    } else if (query.campusID) {
+      filter.campusID = query.campusID;
     }
 
-    const docs = await AttendanceModel.find(campusFilter).sort({ createdAt: "desc" });
-    res.json(docs);
+    // 2. Specific Filters
+    if (query.date) filter.date = new Date(query.date);
+    if (query.classID) filter.classID = query.classID;
+    if (query.attendeeType) filter.attendeeType = query.attendeeType;
+
+    // Fetch and populate
+    const docs = await AttendanceModel.find(filter)
+      .populate('classID', 'name classCode')
+      .populate({
+        path: 'attendees.attendee',
+        select: 'name surname userID'
+      })
+      .sort({ date: -1, createdAt: -1 })
+      .lean();
+
+    res.json({ success: true, docs });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ success: false, error: "Server Error" });
+    console.error("Fetch All Attendance Error:", err);
+    res.status(500).json({ success: false, error: err.message });
   }
 };
 
 exports.getAttendanceByUser = async (req, res) => {
-  const { userID } = req.params;
-  if (!userID) {
-    return res.status(400).json({ success: false, error: "Missing URL parameter: userID" });
+  // Use the MongoDB _id from the URL parameter, which is more reliable
+  const { id } = req.params;
+  if (!id || !mongoose.Types.ObjectId.isValid(id)) {
+    return res.status(400).json({ success: false, error: "Missing or invalid URL parameter: id" });
   }
 
   try {
-    // Find the user's _id first
-    const user = await StudentModel.findOne({ userID }).select('_id') || await TeacherModel.findOne({ userID }).select('_id');
-    if (!user) {
-      return res.status(404).json({ success: false, error: "User not found" });
-    }
+    const AttendanceModel = await req.getModel('attendance');
+    // The user's _id is directly available from the URL
+    const userObjectId = new mongoose.Types.ObjectId(id);
 
     // Find all attendance records where this user is listed as an attendee
-    const attendanceRecords = await AttendanceModel.find({ "attendees.attendee": user._id })
+    const attendanceRecords = await AttendanceModel.find({ "attendees.attendee": userObjectId })
       .populate('classID', 'name')
       .sort({ date: -1 })
       .lean();
 
     // Filter out just the specific user's status from each record
     const userAttendance = attendanceRecords.map(record => {
-      const myRecord = record.attendees.find(att => att.attendee.toString() === user._id.toString());
+      const myRecord = record.attendees.find(att => att.attendee.toString() === id);
       return {
         date: record.date,
         className: record.classID ? record.classID.name : 'N/A',
@@ -61,7 +70,7 @@ exports.getAttendanceByUser = async (req, res) => {
     res.json({ success: true, attendance: userAttendance });
   } catch (err) {
     console.error(err);
-    res.status(500).json({ success: false, error: "Server error" });
+    res.status(500).json({ success: false, error: err.message });
   }
 };
 
@@ -72,7 +81,11 @@ exports.getAttendanceByClassAndDate = async (req, res) => {
   }
 
   try {
-    const classObjectId = mongoose.Types.ObjectId(classID);
+    const ClassesModel = await req.getModel('classes');
+    const StudentModel = await req.getModel('students');
+    const AttendanceModel = await req.getModel('attendance');
+
+    const classObjectId = new mongoose.Types.ObjectId(classID);
     const attendanceDate = new Date(date);
     const { user } = req; // Get the logged-in user from the protect middleware
 
@@ -84,7 +97,8 @@ exports.getAttendanceByClassAndDate = async (req, res) => {
       if (!classDoc) {
         return res.status(404).json({ success: false, error: "Class not found." });
       }
-      if (classDoc.campusID.toString() !== user.campusID.toString()) {
+      const myCampusId = user.campusID._id || user.campusID;
+      if (classDoc.campusID.toString() !== myCampusId.toString()) {
         return res.status(403).json({ success: false, error: "You are not authorized to view attendance for this campus." });
       }
     }
@@ -135,35 +149,105 @@ exports.getAttendanceByClassAndDate = async (req, res) => {
     res.json({ success: true, doc: newTemplate, isNew: true });
   } catch (err) {
     console.error(err);
-    res.status(500).json({ success: false, error: "Server error" });
+    res.status(500).json({ success: false, error: err.message });
   }
 };
 
-exports.createOrUpdateAttendance = async (req, res) => {
-  const { classID, date, attendees, academicYear, term, recordedBy } = req.body;
+exports.createOrUpdateStudentAttendance = async (req, res) => {
+  const { classID, date, attendees, academicYear, term } = req.body;
+  const recordedBy = req.user._id; // Get recorder from logged-in user
 
-  if (!classID || !date || !attendees || !academicYear || !term || !recordedBy) {
-    return res.status(400).json({ success: false, error: "Missing required fields" });
+  if (!classID || !date || !attendees || !academicYear || !term) {
+    return res.status(400).json({ success: false, error: "Missing required fields: classID, date, attendees, academicYear, term" });
   }
 
+  // Map incoming attendees to the correct schema format
+  const attendeesToSave = attendees.map(({ studentID, status, remarks }) => ({
+    attendee: studentID,
+    status,
+    remarks: remarks || ''
+  }));
+
   try {
-    // --- AUTHORIZATION (Admin can do anything, Teacher must be assigned) ---
-    // A full authorization check similar to sbaController would go here.
-    
-    // Find the campusID from the class to ensure data integrity
-    const classDoc = await ClassesModel.findById(classID).select('campusID').lean();
+    const ClassesModel = await req.getModel('classes');
+    const AttendanceModel = await req.getModel('attendance');
+
+    const classObjectId = new mongoose.Types.ObjectId(classID);
+    const attendanceDate = new Date(date);
+
+    const classDoc = await ClassesModel.findById(classObjectId).select('campusID').lean();
     if (!classDoc) {
       return res.status(404).json({ success: false, error: "Class not found. Cannot save attendance." });
     }
     const campusID = classDoc.campusID;
 
-    // The `upsert: true` option will create a new document if one doesn't exist for the classID and date.
+    const recordedByType = ['admin', 'super-admin'].includes(req.user.role) ? 'nonteachers' : 'teachers';
+
+    // Use findOneAndUpdate with upsert to either update existing or create new
+    // We explicitly cast date to ensure it matches the Date type in schema
     const doc = await AttendanceModel.findOneAndUpdate(
-      { classID, date },
-      // We only want to save the fields defined in the schema, not extra fields like 'name'
-      // On insert, set the campusID
-      { $setOnInsert: { campusID: campusID }, 
-        $set: { classID, date, attendees: attendees.map(({ attendee, status, remarks }) => ({ attendee, status, remarks })), academicYear, term, recordedBy, attendeeType: "students" }
+      { classID: classObjectId, date: attendanceDate },
+      {
+        $set: {
+          classID: classObjectId,
+          date: attendanceDate,
+          attendees: attendeesToSave,
+          academicYear,
+          term,
+          recordedBy,
+          recordedByType,
+          attendeeType: "students",
+          campusID: campusID // Ensure it's always set/updated
+        }
+      },
+      { new: true, upsert: true, runValidators: true }
+    );
+
+    // Return doc and success
+    res.status(201).json({ success: true, doc });
+  } catch (err) {
+    console.error("Attendance Save Error:", err);
+    if (err.code === 11000) {
+      return res.status(409).json({ success: false, error: "A record for this class and date already exists." });
+    }
+    res.status(500).json({ success: false, error: err.message });
+  }
+};
+
+exports.createOrUpdateStaffAttendance = async (req, res) => {
+  // Staff attendance is campus-wide, not class-specific
+  const { campusID, date, attendees, academicYear, term } = req.body;
+  const recordedBy = req.user._id; // Get recorder from logged-in user
+
+  if (!campusID || !date || !attendees || !academicYear || !term) {
+    return res.status(400).json({ success: false, error: "Missing required fields: campusID, date, attendees, academicYear, term" });
+  }
+
+  // Map incoming attendees to the correct schema format
+  const attendeesToSave = attendees.map(({ teacherID, status, remarks }) => ({
+    attendee: teacherID,
+    status,
+    remarks: remarks || ''
+  }));
+
+  try {
+    const AttendanceModel = await req.getModel('attendance');
+    const recordedByType = ['admin', 'super-admin'].includes(req.user.role) ? 'nonteachers' : 'teachers';
+
+    // The `upsert: true` option will create a new document if one doesn't exist for the campus and date.
+    const doc = await AttendanceModel.findOneAndUpdate(
+      { campusID, date, attendeeType: "staff" },
+      {
+        $set: {
+          campusID,
+          date,
+          attendees: attendeesToSave,
+          academicYear,
+          term,
+          recordedBy,
+          recordedByType,
+          attendeeType: "staff"
+        }
       },
       { new: true, upsert: true, runValidators: true }
     );
@@ -171,8 +255,8 @@ exports.createOrUpdateAttendance = async (req, res) => {
   } catch (err) {
     console.error(err);
     if (err.code === 11000) {
-      return res.status(409).json({ success: false, error: "A record for this class and date already exists. Use update instead." });
+      return res.status(409).json({ success: false, error: "A staff attendance record for this campus and date already exists." });
     }
-    res.status(500).json({ success: false, error: "Server error" });
+    res.status(500).json({ success: false, error: err.message });
   }
 };

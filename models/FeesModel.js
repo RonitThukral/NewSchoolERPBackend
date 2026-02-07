@@ -58,4 +58,6 @@ const FeesSchema = new Schema(
   { timestamps: true }
 );
 
+FeesSchema.index({ campusID: 1 });
+
 module.exports = mongoose.model("fees", FeesSchema);

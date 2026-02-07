@@ -54,4 +54,6 @@ const NoticeSchema = new Schema(
   { timestamps: true }
 );
 
+NoticeSchema.index({ campusID: 1 });
+
 module.exports = mongoose.model("notices", NoticeSchema);

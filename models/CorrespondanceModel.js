@@ -43,4 +43,6 @@ const CorrespondanceSchema = new Schema(
   { timestamps: true }
 );
 
+CorrespondanceSchema.index({ campusID: 1 });
+
 module.exports = mongoose.model("correspondance", CorrespondanceSchema);

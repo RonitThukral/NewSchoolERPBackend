@@ -60,4 +60,6 @@ const DeductionsSchema = new Schema(
   { timestamps: true }
 );
 
+DeductionsSchema.index({ campusID: 1 });
+
 module.exports = mongoose.model("deductions", DeductionsSchema);

@@ -10,32 +10,28 @@ const NonTeacherSchema = new Schema(
     },
     surname: {
       type: String,
-      required: true,
     },
     email: {
       type: String,
+      unique: true,
+      // Allows multiple documents to have a null email, but email addresses must be unique
+      sparse: true,
     },
     address: {
       type: String,
     },
-    class: {
-      type: String,
-    },
     role: {
       type: String,
-      default: "nonteacher",
     },
     telephone: {
       type: String,
     },
     position: {
       type: String,
-      required: true,
     },
     campusID: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "campus",
-      required: true,
     },
     password: {
       type: String,
@@ -46,7 +42,6 @@ const NonTeacherSchema = new Schema(
     },
     gender: {
       type: String,
-      required: true,
     },
     profileUrl: String,
     userID: {
@@ -59,5 +54,10 @@ const NonTeacherSchema = new Schema(
   },
   { timestamps: true }
 );
+
+// This is the modern way to create a unique index that ignores null/missing values.
+NonTeacherSchema.index({ email: 1 }, { unique: true, partialFilterExpression: { email: { $type: 'string' } } });
+
+NonTeacherSchema.index({ campusID: 1 });
 
 module.exports = mongoose.model("nonTeachers", NonTeacherSchema, "accounts");

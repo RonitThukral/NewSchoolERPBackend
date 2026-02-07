@@ -1,16 +1,17 @@
-const CoursesModel = require("../models/CoursesModel");
 const { stringtoLowerCase } = require("../middlewares/utils");
-const ClassesModel = require("../models/ClassesModel");
 
 exports.getAllCourses = async (req, res) => {
   const { user, query } = req;
   try {
+    const CoursesModel = await req.getModel('courses');
+    const ClassesModel = await req.getModel('classes');
+
     let filter = {};
     let campusIdToQuery = null;
 
     if (user.campusID) { // This is a Campus Admin
       // Campus admins can view their own campus or another if they query for it
-      campusIdToQuery = query.campusID || user.campusID?._id;
+      campusIdToQuery = query.campusID || user.campusID?._id || user.campusID;
     } else if (!user.campusID && query.campusID) { // This is a Global Admin filtering by campus
       campusIdToQuery = query.campusID;
     }
@@ -34,6 +35,7 @@ exports.getCourseById = async (req, res) => {
     return res.status(400).send("Missing URL parameter: id");
   }
   try {
+    const CoursesModel = await req.getModel('courses');
     const doc = await CoursesModel.findById(req.params.id);
     if (doc) {
       return res.json({ success: true, doc });
@@ -51,6 +53,7 @@ exports.getCoursesByClass = async (req, res) => {
     return res.status(400).send("Missing URL parameter: classID");
   }
   try {
+    const CoursesModel = await req.getModel('courses');
     const docs = await CoursesModel.find({ "classAssignments.classID": req.params.id });
     res.json({ success: true, docs });
   } catch (err) {
@@ -64,6 +67,7 @@ exports.getCoursesByTeacher = async (req, res) => {
     return res.status(400).send("Missing URL parameter: teacherID");
   }
   try {
+    const CoursesModel = await req.getModel('courses');
     const docs = await CoursesModel.find({ "classAssignments.teacherID": req.params.id });
     res.json({ success: true, docs });
   } catch (err) {
@@ -74,6 +78,7 @@ exports.getCoursesByTeacher = async (req, res) => {
 
 exports.createCourse = async (req, res) => {
   try {
+    const CoursesModel = await req.getModel('courses');
     const { name, code } = req.body;
     const courseCode = stringtoLowerCase(code);
 
@@ -99,6 +104,7 @@ exports.assignCourseToClass = async (req, res) => {
   }
 
   try {
+    const CoursesModel = await req.getModel('courses');
     const course = await CoursesModel.findById(courseId);
     if (!course) {
       return res.status(404).json({ success: false, error: "Course not found" });
@@ -120,6 +126,7 @@ exports.updateCourse = async (req, res) => {
     return res.status(400).send("Missing URL parameter: id");
   }
   try {
+    const CoursesModel = await req.getModel('courses');
     const doc = await CoursesModel.findByIdAndUpdate(req.params.id, req.body, {
       new: true,
       runValidators: true,
@@ -139,6 +146,7 @@ exports.deleteCourse = async (req, res) => {
     return res.status(400).send("Missing URL parameter: id");
   }
   try {
+    const CoursesModel = await req.getModel('courses');
     const doc = await CoursesModel.findByIdAndDelete(req.params.id);
     if (!doc) {
       return res.status(404).json({ success: false, error: "Course not found" });

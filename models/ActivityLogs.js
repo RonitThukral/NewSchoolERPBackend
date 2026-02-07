@@ -19,4 +19,6 @@ const ActivitySchema = new Schema(
   { timestamps: true }
 );
 
+ActivitySchema.index({ campusID: 1 });
+
 module.exports = mongoose.model("ativity", ActivitySchema);

@@ -1,9 +1,6 @@
 const express = require("express");
 const multer = require("multer");
 const { getStudentAcademicReport } = require("../controllers/sbaController");
-const ClassesModel = require("../models/ClassesModel");
-const CoursesModel = require("../models/CoursesModel");
-const StudentModel = require("../models/StudentModel");
 const path = require("path");
 const {
   bulkDeleteStudents,
@@ -49,6 +46,7 @@ const campusCheckOptions = {
     }
     // For updating/deleting an existing resource by userID in params
     if ((req.method === 'PUT' || req.method === 'DELETE') && req.params.id) {
+      const StudentModel = await req.getModel('students');
       const student = await StudentModel.findOne({ userID: req.params.id }).select('campusID').lean();
       return student?.campusID;
     }
@@ -58,6 +56,7 @@ const campusCheckOptions = {
     }
     // For promoting a student, we get the student from the body userID
     if (req.path === '/promote' && req.body.userID) {
+      const StudentModel = await req.getModel('students');
       const student = await StudentModel.findOne({ userID: req.body.userID }).select('campusID').lean();
       return student?.campusID;
     }
@@ -134,16 +133,19 @@ route.get("/student/report/:userID/:year/:term", protect, authorize("admin", "te
     }
 
     if (user.role === 'teacher') {
+      const StudentModel = await req.getModel('students');
       const student = await StudentModel.findOne({ userID }).select('classID').lean();
       if (!student) return false;
 
       // Check if the teacher is the class teacher for this student
+      const ClassesModel = await req.getModel('classes');
       const studentClass = await ClassesModel.findById(student.classID).select('teacherID').lean();
       if (studentClass && studentClass.teacherID && studentClass.teacherID.toString() === user._id.toString()) {
         return true;
       }
 
       // Check if the teacher teaches any course to this student's class
+      const CoursesModel = await req.getModel('courses');
       const taughtCourse = await CoursesModel.findOne({ 'classAssignments.classID': student.classID, 'classAssignments.teacherID': user._id }).lean();
       return !!taughtCourse;
     }

@@ -6,7 +6,6 @@ const {
   updatePayrow,
   deletePayrow,
 } = require("../controllers/payrowController");
-const PayrowModel = require("../models/PayRow.Model");
 const { protect, authorize } = require("../middlewares/auth");
 
 const route = express.Router();
@@ -20,6 +19,7 @@ const campusCheckOptions = {
     }
     // For updating/deleting an existing resource by _id in params
     if ((req.method === 'PUT' || req.method === 'DELETE') && req.params.id) {
+      const PayrowModel = await req.getModel('payroll');
       const payrow = await PayrowModel.findById(req.params.id).select('campusID').lean();
       return payrow?.campusID;
     }

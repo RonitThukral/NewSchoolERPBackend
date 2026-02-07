@@ -75,8 +75,8 @@ route.get("/class/:classID", protect, authorize("admin", "teacher", "student"), 
 route.post(
   "/upload",
   protect,
-  authorize("admin", "teacher", { ...campusCheckOptions, ...subjectTeacherCheckOptions }),
   upload.fields([{ name: "pdf" }, { name: "image" }]),
+  authorize("admin", "teacher", { ...campusCheckOptions, ...subjectTeacherCheckOptions }),
   createHomework
 );
 

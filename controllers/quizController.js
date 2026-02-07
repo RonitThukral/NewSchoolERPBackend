@@ -60,7 +60,7 @@ exports.submitQuiz = async (req, res) => {
     }
 
     // Check if student has already taken the quiz
-    const hasTaken = quiz.participants.some(p => p.type.userID === req.user.userID);
+    const hasTaken = quiz.participants.some(p => p.userID === req.user.userID);
     if (hasTaken) {
       return res.status(409).json({ success: false, error: "You have already submitted this quiz." });
     }
@@ -77,11 +77,10 @@ exports.submitQuiz = async (req, res) => {
     const scorePercentage = totalQuestions > 0 ? (correctAnswers / totalQuestions) * 100 : 0;
 
     // --- Save Participant Score ---
-    const participantData = {
-      type: {
-        userID: req.user.userID,
-        score: scorePercentage,
-      }
+    const participantData = { // Removed the incorrect 'type' wrapper
+      userID: req.user.userID,
+      score: scorePercentage,
+      answers: answers, // Save the student's submitted answers
     };
     quiz.participants.push(participantData);
     await quiz.save();

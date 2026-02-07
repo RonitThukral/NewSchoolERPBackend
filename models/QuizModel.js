@@ -28,7 +28,7 @@ const QuizSchema = new Schema(
       ref: "campus",
       required: true,
     },
-    totalTime:{
+    totalTime: {
       type: Number,
       required: true,
       default: 10.0
@@ -64,23 +64,25 @@ const QuizSchema = new Schema(
     participants: {
       type: [
         {
-          type: {
-            userID: {
-              type: String,
-              required: true,
-            },
-            score: {
-              type: Number,
-              default: 0,
-            },
-            date: {
-              type: Date,
-              default: Date.now,
-            },
-            takeTime:{
-              type: Number,
-              default: 0.0
-            }
+          userID: {
+            type: String,
+            required: true,
+          },
+          score: {
+            type: Number,
+            default: 0,
+          },
+          date: {
+            type: Date,
+            default: Date.now,
+          },
+          takeTime: {
+            type: Number,
+            default: 0.0,
+          },
+          answers: { // Add this field to store the student's answers
+            type: [String],
+            default: [],
           },
         },
       ],
@@ -89,5 +91,7 @@ const QuizSchema = new Schema(
   },
   { timestamps: true }
 );
+
+QuizSchema.index({ campusID: 1 });
 
 module.exports = mongoose.model("quiz", QuizSchema);

@@ -45,4 +45,6 @@ const ClassesSchema = new Schema(
   { timestamps: true }
 );
 
+ClassesSchema.index({ campusID: 1 });
+
 module.exports = mongoose.model("classes", ClassesSchema);

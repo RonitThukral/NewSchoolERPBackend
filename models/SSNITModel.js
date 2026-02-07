@@ -36,4 +36,6 @@ const SBASchema = new Schema(
   { timestamps: true }
 );
 
+SBASchema.index({ campusID: 1 });
+
 module.exports = mongoose.model("ssnit", SBASchema);

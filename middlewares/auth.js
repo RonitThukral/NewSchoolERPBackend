@@ -1,8 +1,4 @@
 const jwt = require("jsonwebtoken");
-const StudentModel = require("../models/StudentModel");
-const TeacherModel = require("../models/TeacherModel");
-const SchoolModel = require("../models/SchoolModel");
-const NonTeacherModel = require("../models/NonTeacherModel"); // Import the correct model
 
 // Middleware to protect routes
 exports.protect = async (req, res, next) => {
@@ -23,10 +19,14 @@ exports.protect = async (req, res, next) => {
     // Find the user based on the role stored in the token
     let user;
     if (decoded.role === 'student') {
+      const StudentModel = await req.getModel('students');
       user = await StudentModel.findById(decoded.id);
-    } else if (decoded.role === 'admin') { // This now handles both Global and Campus Admins
+    } else if (['admin', 'super-admin'].includes(decoded.role)) { // Admins are in 'accounts' collection
+      const NonTeacherModel = await req.getModel('nonteachers');
       user = await NonTeacherModel.findById(decoded.id).populate('campusID', 'name');
-    } else { // Assume 'teacher' or any other staff role
+    } else { // Teachers and other staff are in 'teachers' or 'accounts' collections
+      // We check TeacherModel first now that it's a dedicated collection
+      const TeacherModel = await req.getModel('teachers');
       user = await TeacherModel.findById(decoded.id);
     }
 
@@ -69,10 +69,10 @@ exports.authorize = (...args) => {
 
     // 1. Role-based authorization
     if (!roles.includes(req.user.role)) {
-        return res.status(403).json({
-            success: false,
-            error: `User role '${req.user.role}' is not authorized to access this route`,
-        });
+      return res.status(403).json({
+        success: false,
+        error: `User role '${req.user.role}' is not authorized to access this route`,
+      });
     }
 
     // 2. Campus-aware authorization for Campus Admins
@@ -93,7 +93,7 @@ exports.authorize = (...args) => {
         }
 
         // Compare the admin's campusID with the resource's campusID
-        if (req.user.campusID.toString() !== resourceCampusId.toString()) {
+        if (req.user.campusID._id.toString() !== resourceCampusId.toString()) {
           return res.status(403).json({
             success: false,
             error: `Admin is not authorized to modify resources outside their assigned campus.`,

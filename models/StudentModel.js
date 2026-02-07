@@ -169,7 +169,7 @@ const StudentSchema = new Schema(
     },
     resetPassowrdToken: String,
     resetPasswordExpires: Date,
-     // Stores push notification tokens for different devices/platforms
+    // Stores push notification tokens for different devices/platforms
     pushTokens: {
       type: [String],
       default: [],
@@ -177,5 +177,7 @@ const StudentSchema = new Schema(
   },
   { timestamps: true }
 );
+
+StudentSchema.index({ campusID: 1 });
 
 module.exports = mongoose.model("students", StudentSchema);
