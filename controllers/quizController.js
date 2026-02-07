@@ -7,7 +7,26 @@ const ClassesModel = require("../models/ClassesModel");
 exports.getAllQuizzes = async (req, res) => {
   const { user, query } = req;
   try {
-    // Build the campus filter based on user role
+    const QuizModel = await req.getModel('quizzes');
+
+    // Teacher-specific filtering: Only show quizzes for classes they teach
+    if (user.role === 'teacher') {
+      // Get all classes where this teacher is assigned
+      const ClassesModel = await req.getModel('classes');
+      const teacherClasses = await ClassesModel.find({ teacherID: user._id }).select('_id').lean();
+      const classIDs = teacherClasses.map(c => c._id);
+
+      // Filter quizzes by these class IDs
+      const docs = await QuizModel.find({ classID: { $in: classIDs } })
+        .populate('classID', 'name')
+        .populate('courseID', 'name')
+        .populate('campusID', 'name')
+        .sort({ createdAt: "desc" });
+
+      return res.json(docs);
+    }
+
+    // Build the campus filter based on user role (for admins)
     let campusFilter = {};
     if (user.campusID) { // This is a Campus Admin
       // Admins default to their own campus, but can view others via query param
@@ -33,7 +52,10 @@ exports.getQuizById = async (req, res) => {
     return res.status(400).send("Missing URL parameter: id");
   }
   try {
-    const doc = await QuizModel.findById(req.params.id);
+    const QuizModel = await req.getModel('quizzes');
+    const doc = await QuizModel.findById(req.params.id)
+      .populate('classID', 'name')
+      .populate('campusID', 'name');
     if (doc) {
       return res.json({ success: true, doc });
     }
@@ -113,6 +135,9 @@ exports.submitQuiz = async (req, res) => {
 
 exports.createQuiz = async (req, res) => {
   try {
+    const ClassesModel = await req.getModel('classes');
+    const QuizModel = await req.getModel('quizzes');
+
     // Find the campusID from the class to ensure data integrity
     const classDoc = await ClassesModel.findById(req.body.classID).select('campusID').lean();
     if (!classDoc) {
@@ -122,10 +147,16 @@ exports.createQuiz = async (req, res) => {
 
     const quizData = { ...req.body, campusID };
     const doc = await QuizModel.create(quizData);
-    res.status(201).json({ success: true, doc });
+
+    // Populate the class info before returning
+    const populatedDoc = await QuizModel.findById(doc._id)
+      .populate('classID', 'name')
+      .populate('campusID', 'name');
+
+    res.status(201).json({ success: true, doc: populatedDoc });
   } catch (err) {
-    console.error(err);
-    res.status(400).json({ success: false, error: err.message });
+    console.error("Quiz creation error:", err);
+    res.status(400).json({ success: false, error: err.message || "Failed to create quiz" });
   }
 };
 
@@ -134,14 +165,17 @@ exports.updateQuiz = async (req, res) => {
     return res.status(400).send("Missing URL parameter: id");
   }
   try {
-    const doc = await QuizModel.findByIdAndUpdate(req.params.id, req.body, { new: true, runValidators: true });
+    const QuizModel = await req.getModel('quizzes');
+    const doc = await QuizModel.findByIdAndUpdate(req.params.id, req.body, { new: true, runValidators: true })
+      .populate('classID', 'name')
+      .populate('campusID', 'name');
     if (!doc) {
       return res.status(404).json({ success: false, error: "Quiz not found" });
     }
     res.json({ success: true, doc });
   } catch (err) {
     console.error(err);
-    res.status(400).json({ success: false, error: err.message });
+    res.status(400).json({ success: false, error: err.message || "Failed to update quiz" });
   }
 };
 
@@ -150,11 +184,13 @@ exports.addQuestion = async (req, res) => {
     return res.status(400).send("Missing URL parameter: id");
   }
   try {
-    const doc = await QuizModel.findByIdAndUpdate(req.params.id, { $push: { questions: req.body } }, { new: true });
+    const QuizModel = await req.getModel('quizzes');
+    const doc = await QuizModel.findByIdAndUpdate(req.params.id, { $push: { questions: req.body } }, { new: true })
+      .populate('classID', 'name');
     res.json({ success: true, doc });
   } catch (err) {
     console.error(err);
-    res.status(400).json({ success: false, error: err.message });
+    res.status(400).json({ success: false, error: err.message || "Failed to add question" });
   }
 };
 
@@ -163,11 +199,12 @@ exports.addParticipant = async (req, res) => {
     return res.status(400).send("Missing URL parameter: id");
   }
   try {
+    const QuizModel = await req.getModel('quizzes');
     const doc = await QuizModel.findByIdAndUpdate(req.params.id, { $push: { participants: req.body } }, { new: true });
     res.json({ success: true, doc });
   } catch (err) {
     console.error(err);
-    res.status(400).json({ success: false, error: err.message });
+    res.status(400).json({ success: false, error: err.message || "Failed to add participant" });
   }
 };
 
@@ -176,7 +213,11 @@ exports.deleteQuiz = async (req, res) => {
     return res.status(400).send("Missing URL parameter: id");
   }
   try {
-    await QuizModel.findByIdAndDelete(req.params.id);
+    const QuizModel = await req.getModel('quizzes');
+    const doc = await QuizModel.findByIdAndDelete(req.params.id);
+    if (!doc) {
+      return res.status(404).json({ success: false, error: "Quiz not found" });
+    }
     res.json({ success: true, message: "Quiz deleted successfully" });
   } catch (err) {
     console.error(err);

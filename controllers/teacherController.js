@@ -151,6 +151,17 @@ exports.createTeacher = async (req, res) => {
   }
 };
 
+const jwt = require("jsonwebtoken");
+
+const getSignedJwtToken = function (id, role, campusID) {
+  if (!process.env.JWT_SECRET) {
+    throw new Error('JWT_SECRET is not defined in your .env file');
+  }
+  return jwt.sign({ id, role, campusID }, process.env.JWT_SECRET, {
+    expiresIn: process.env.JWT_EXPIRES_IN,
+  });
+};
+
 exports.signInTeacher = async (req, res) => {
   const { error } = login.validate(req.body);
   if (error) {
@@ -159,15 +170,27 @@ exports.signInTeacher = async (req, res) => {
 
   try {
     const TeacherModel = await req.getModel('teachers');
+    // We also need to load the Campus model to ensure schema registration if we were populating it, 
+    // though here we just need the ID if it exists in the teacher doc.
+
     const user = await TeacherModel.findOne({ userID: req.body.userID });
     if (user) {
       const isMatch = await bcrypt.compare(req.body.password, user.password);
       if (isMatch) {
-        return res.json({ success: true, user });
+        // Generate Token
+        // Note: Teachers might have a campusID. If it's an object, get _id, else use it as is.
+        const campusID = user.campusID && user.campusID._id ? user.campusID._id : user.campusID;
+        const token = getSignedJwtToken(user._id, user.role || 'teacher', campusID);
+
+        const userObject = user.toObject ? user.toObject() : user;
+        delete userObject.password;
+
+        return res.json({ success: true, token, user: userObject });
       }
     }
     res.status(401).json({ error: "Wrong Password or Teacher ID" });
   } catch (err) {
+    console.error("SignIn Teacher Error:", err);
     res.status(500).json({ error: "Something went wrong" });
   }
 };

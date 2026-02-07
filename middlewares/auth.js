@@ -28,6 +28,12 @@ exports.protect = async (req, res, next) => {
       // We check TeacherModel first now that it's a dedicated collection
       const TeacherModel = await req.getModel('teachers');
       user = await TeacherModel.findById(decoded.id);
+
+      // If not found in teachers, check nonteachers (for other staff roles)
+      if (!user) {
+        const NonTeacherModel = await req.getModel('nonteachers');
+        user = await NonTeacherModel.findById(decoded.id);
+      }
     }
 
     if (!user) {

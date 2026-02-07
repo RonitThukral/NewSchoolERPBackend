@@ -11,10 +11,10 @@ const { Server } = require("socket.io");
 dotenv.config();
 
 const app = express();
-const server = http.createServer(app); 
-const io = new Server(server, { 
+const server = http.createServer(app);
+const io = new Server(server, {
   cors: {
-    origin: "*", 
+    origin: "*",
     methods: ["GET", "POST"]
   }
 });
@@ -58,12 +58,12 @@ const PaymentRoutes = require("./routes/paymentRoutes");
 const QuizRoutes = require("./routes/QuizRoutes");
 const BadgeRoutes = require("./routes/BadgeRoutes");
 const initializeSocket = require("./services/socketService");
-const mongoose = require("mongoose"); 
+const mongoose = require("mongoose");
 
 const upload = multer({ dest: path.join(__dirname, "/uploads") });
 
-app.use(express.json({ limit: "50mb" })); 
-app.use(express.urlencoded({ limit: "50mb", extended: true, parameterLimit: 100000 })); 
+app.use(express.json({ limit: "50mb" }));
+app.use(express.urlencoded({ limit: "50mb", extended: true, parameterLimit: 100000 }));
 
 app.use(cors({}));
 app.use(express.static(path.join(__dirname, "consumerPhotos")));
@@ -76,7 +76,7 @@ app.get("/", (req, res) => {
   res.send("Welcome to D-system API");
 });
 
-let requests = []; 
+let requests = [];
 
 app.post("/api/requests", (req, res) => {
   const newRequest = { id: Date.now(), ...req.body };
@@ -131,9 +131,9 @@ app.use("/api/deductions", DeductionsRoutes);
 app.use("/api/images", ImageRoutes);
 app.use("/api/homeworks", HomeWorkRoutes);
 app.use("/api/leave-applications", LeaveApplicationRoute);
-app.use("/api/quiz", QuizRoutes);
+app.use("/api/quizzes", QuizRoutes);
 app.use("/api/badges", BadgeRoutes);
-app.use("/api/payment", PaymentRoutes); 
+app.use("/api/payment", PaymentRoutes);
 
 if (process.env.NODE_ENV === 'development') {
   app.use('/dev', require('./devRoutes'));

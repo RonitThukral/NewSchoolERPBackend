@@ -1,23 +1,58 @@
 const { stringtoLowerCaseSpace } = require("../middlewares/utils");
+const mongoose = require('mongoose');
 
 exports.getActiveClasses = async (req, res) => {
   const { user, query } = req;
   try {
     const ClassesModel = await req.getModel('classes');
-    let campusFilter = {};
-    if (user.role === 'admin' && user.campusID) {
+    const CoursesModel = await req.getModel('courses');
+
+    let filter = { isArchived: false };
+
+    // Teacher-specific filter: Show classes where they are the main teacher OR assigned to a course
+    if (user.role === 'teacher') {
+      const teacherObjectId = new mongoose.Types.ObjectId(user._id);
+
+      // Find classes where teacher teaches any course
+      const teacherCourses = await CoursesModel.find({
+        'classAssignments.teacherID': teacherObjectId
+      }).select('classAssignments.classID').lean();
+
+      const assignedClassIds = new Set();
+      teacherCourses.forEach(course => {
+        if (course.classAssignments) {
+          course.classAssignments.forEach(assignment => {
+            if (assignment.classID && assignment.teacherID && assignment.teacherID.toString() === user._id.toString()) {
+              assignedClassIds.add(assignment.classID.toString());
+            }
+          });
+        }
+      });
+
+      // Also respect campus if they have one
+      if (user.campusID) {
+        filter.campusID = user.campusID._id || user.campusID;
+      }
+
+      filter.$or = [
+        { teacherID: teacherObjectId },
+        { _id: { $in: Array.from(assignedClassIds).map(id => new mongoose.Types.ObjectId(id)) } }
+      ];
+    } else if (user.role === 'admin' && user.campusID) {
       // This is a Campus Admin - restrict to their assigned campus only
-      campusFilter.campusID = user.campusID._id || user.campusID;
+      filter.campusID = user.campusID._id || user.campusID;
     } else if (query.campusID && query.campusID !== 'undefined' && query.campusID !== 'null') {
       // This is a Super Admin or similar, filtering by a specific campus
-      campusFilter.campusID = query.campusID;
+      filter.campusID = query.campusID;
     }
 
-    const docs = await ClassesModel.find({ isArchived: false, ...campusFilter })
+    const docs = await ClassesModel.find(filter)
       .populate('teacherID', 'name surname userID')
       .sort({ createdAt: "desc" })
       .lean();
-    res.json(docs);
+
+    // Default to returning an empty array if nothing found
+    res.json(docs || []);
   } catch (err) {
     console.error("Fetch Active Classes Error:", err);
     res.status(500).json({ success: false, error: err.message });

@@ -10,13 +10,12 @@ const QuizSchema = new Schema(
     },
     description: {
       type: String,
-      required: true,
       default: "none",
     },
     courseID: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "courses",
-      required: true,
+      required: false, // Make it optional
     },
     classID: {
       type: mongoose.Schema.Types.ObjectId,
@@ -28,10 +27,14 @@ const QuizSchema = new Schema(
       ref: "campus",
       required: true,
     },
-    totalTime: {
+    duration: { // Renamed from totalTime to duration
       type: Number,
       required: true,
-      default: 10.0
+      default: 60
+    },
+    totalMarks: { // Added
+      type: Number,
+      default: 100
     },
     questions: {
       type: [
@@ -80,7 +83,7 @@ const QuizSchema = new Schema(
             type: Number,
             default: 0.0,
           },
-          answers: { // Add this field to store the student's answers
+          answers: {
             type: [String],
             default: [],
           },
@@ -94,4 +97,5 @@ const QuizSchema = new Schema(
 
 QuizSchema.index({ campusID: 1 });
 
+// Note: In multi-tenant, we actually export the schema, but keeping the model export for compatibility with non-tenant usage if any.
 module.exports = mongoose.model("quiz", QuizSchema);

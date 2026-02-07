@@ -1,38 +1,48 @@
-const homeworkModel = require("../models/HomeWorkModel");
 const cloudinary = require("../middlewares/cloudinary");
 const streamifier = require("streamifier");
-const ClassesModel = require("../models/ClassesModel");
 
 exports.getAllHomeworks = async (req, res) => {
   const { user, query } = req;
   try {
+    const homeworkModel = await req.getModel('homeworks');
+
     // Build the campus filter based on user role
-    let campusFilter = {};
+    let filter = {};
     if (user.campusID) { // This is a Campus Admin
-      // Admins default to their own campus, but can view others via query param
-      const campusId = query.campusID || user.campusID?._id;
-      if (campusId) campusFilter.campusID = campusId;
-    } else if (!user.campusID && query.campusID) { // This is a Global Admin filtering by campus
-      // Global admins can filter by any campus
-      campusFilter.campusID = query.campusID;
+      const campusId = query.campusID || user.campusID?._id || user.campusID;
+      if (campusId) filter.campusID = campusId;
+    } else if (!user.campusID && query.campusID) { // This is a Global Admin / Super Admin
+      filter.campusID = query.campusID;
     }
 
-    const data = await homeworkModel.find(campusFilter)
-      .populate('classID', 'name').populate('courseID', 'name').populate('teacherID', 'name')
+    // Teacher-specific filtering
+    if (user.role === 'teacher') {
+      filter.teacherID = user._id;
+    }
+
+    const data = await homeworkModel.find(filter)
+      .populate('classID', 'name')
+      .populate('courseID', 'name')
+      .populate('teacherID', 'name surname userID')
       .sort({ createdAt: "desc" });
+
     res.json(data);
   } catch (err) {
-    console.error(err);
+    console.error("Fetch All Homeworks Error:", err);
     res.status(500).json({ success: false, error: "Server Error" });
   }
 };
 
 exports.getHomeworkById = async (req, res) => {
   if (!req.params.id) {
-    return res.status(400).send("Missing URL parameter: id");
+    return res.status(400).json({ success: false, error: "Missing URL parameter: id" });
   }
   try {
-    const doc = await homeworkModel.findById(req.params.id);
+    const homeworkModel = await req.getModel('homeworks');
+    const doc = await homeworkModel.findById(req.params.id)
+      .populate('classID', 'name')
+      .populate('courseID', 'name')
+      .populate('teacherID', 'name surname userID');
     if (doc) {
       return res.json({ success: true, doc });
     } else {
@@ -47,26 +57,28 @@ exports.getHomeworkById = async (req, res) => {
 exports.getHomeworksByClass = async (req, res) => {
   const { user } = req;
   if (!req.params.classID) {
-    return res.status(400).send("Missing URL parameter: classID");
+    return res.status(400).json({ success: false, error: "Missing URL parameter: classID" });
   }
   try {
+    const homeworkModel = await req.getModel('homeworks');
+    const ClassesModel = await req.getModel('classes');
+
     // --- CAMPUS AUTHORIZATION ---
-    // If the user is a campus admin, ensure the requested class belongs to their campus.
-    if (user.campusID) { // This check only applies to Campus Admins
+    if (user.campusID) {
       const classDoc = await ClassesModel.findById(req.params.classID).select('campusID').lean();
       if (!classDoc) {
         return res.status(404).json({ success: false, error: "Class not found." });
       }
-      if (classDoc.campusID.toString() !== user.campusID.toString()) {
+      const myCampusId = user.campusID._id || user.campusID;
+      if (classDoc.campusID.toString() !== myCampusId.toString()) {
         return res.status(403).json({ success: false, error: "You are not authorized to view homework for this campus." });
       }
     }
-    const docs = await homeworkModel.find({ classID: req.params.classID });
-    if (docs.length > 0) {
-      return res.json({ success: true, homeworks: docs });
-    } else {
-      return res.status(404).json({ success: false, error: "No homeworks found for this class" });
-    }
+    const docs = await homeworkModel.find({ classID: req.params.classID })
+      .populate('courseID', 'name')
+      .populate('teacherID', 'name surname');
+
+    res.json({ success: true, homeworks: docs || [] });
   } catch (err) {
     console.error(err);
     return res.status(500).json({ success: false, error: "Server error" });
@@ -87,13 +99,17 @@ const uploadToCloudinary = (file) => {
 };
 
 exports.createHomework = async (req, res) => {
-  if (!req.body.title || !req.body.classID || !req.body.courseID || !req.body.teacherID) {
-    return res.status(400).send("Missing required fields: title, courseID, teacherID, or classID");
+  const { title, classID, courseID, teacherID } = req.body;
+  if (!title || !classID || !courseID || !teacherID) {
+    return res.status(400).json({ success: false, error: "Missing required fields: title, courseID, teacherID, or classID" });
   }
 
   try {
+    const homeworkModel = await req.getModel('homeworks');
+    const ClassesModel = await req.getModel('classes');
+
     // Find the campusID from the class to ensure data integrity
-    const classDoc = await ClassesModel.findById(req.body.classID).select('campusID').lean();
+    const classDoc = await ClassesModel.findById(classID).select('campusID').lean();
     if (!classDoc) {
       return res.status(404).json({ success: false, error: "Class not found. Cannot save homework." });
     }
@@ -116,28 +132,34 @@ exports.createHomework = async (req, res) => {
     const homeworkData = {
       ...req.body,
       attachments: attachments,
-      campusID: campusID, // Add campusID to the homework data
+      campusID: campusID,
     };
 
-    const homework = new homeworkModel(homeworkData);
+    const homework = await homeworkModel.create(homeworkData);
 
-    await homework.save();
-    res.status(201).json({ success: true, homework });
+    // Populate before returning
+    const populatedHomework = await homeworkModel.findById(homework._id)
+      .populate('classID', 'name')
+      .populate('courseID', 'name')
+      .populate('teacherID', 'name surname');
+
+    res.status(201).json({ success: true, doc: populatedHomework });
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ success: false, error: "File upload failed" });
+    console.error("Homework creation error:", error);
+    res.status(500).json({ success: false, error: error.message || "Homework creation failed" });
   }
 };
 
 exports.updateHomework = async (req, res) => {
   if (!req.params.id) {
-    return res.status(400).send("Missing URL parameter: id");
+    return res.status(400).json({ success: false, error: "Missing URL parameter: id" });
   }
 
   try {
+    const homeworkModel = await req.getModel('homeworks');
     const homeworkData = await homeworkModel.findById(req.params.id);
     if (!homeworkData) {
-      return res.status(404).send("Homework not found");
+      return res.status(404).json({ success: false, error: "Homework not found" });
     }
 
     const updatedData = { ...req.body };
@@ -154,13 +176,13 @@ exports.updateHomework = async (req, res) => {
           });
         }
       }
-      // Combine existing attachments with new ones, or replace them as needed
       updatedData.attachments = [...(homeworkData.attachments || []), ...newAttachments];
     }
 
+    const doc = await homeworkModel.findByIdAndUpdate(req.params.id, updatedData, { new: true })
+      .populate('classID', 'name')
+      .populate('courseID', 'name');
 
-    const doc = await homeworkModel.findByIdAndUpdate(req.params.id, updatedData, { new: true });
-    
     return res.json({ success: true, doc });
 
   } catch (error) {
@@ -171,14 +193,15 @@ exports.updateHomework = async (req, res) => {
 
 exports.deleteHomework = async (req, res) => {
   if (!req.params.id) {
-    return res.status(400).send("Missing URL parameter: id");
+    return res.status(400).json({ success: false, error: "Missing URL parameter: id" });
   }
   try {
+    const homeworkModel = await req.getModel('homeworks');
     const doc = await homeworkModel.findByIdAndDelete(req.params.id);
     if (!doc) {
       return res.status(404).json({ success: false, error: "Homework not found" });
     }
-    res.json({ success: true, message: "Homework deleted successfully", doc });
+    res.json({ success: true, message: "Homework deleted successfully", id: req.params.id });
   } catch (err) {
     console.error(err);
     res.status(500).json({ success: false, error: "Server error" });

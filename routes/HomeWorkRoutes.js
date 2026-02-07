@@ -10,9 +10,6 @@ const {
   updateHomework,
   deleteHomework,
 } = require("../controllers/homeworkController");
-const HomeWorkModel = require("../models/HomeWorkModel");
-const ClassesModel = require("../models/ClassesModel");
-const CoursesModel = require("../models/CoursesModel");
 const { protect, authorize } = require("../middlewares/auth");
 
 const upload = multer({ storage: storage });
@@ -20,6 +17,9 @@ const upload = multer({ storage: storage });
 const campusCheckOptions = {
   checkCampus: true,
   getCampusIdForResource: async (req) => {
+    const ClassesModel = await req.getModel('classes');
+    const HomeWorkModel = await req.getModel('homeworks');
+
     // For creating a new resource, get campus from the classID
     if (req.method === 'POST' && req.body.classID) {
       const classDoc = await ClassesModel.findById(req.body.classID).select('campusID').lean();
@@ -37,9 +37,12 @@ const campusCheckOptions = {
 const subjectTeacherCheckOptions = {
   ownershipCheck: async (req) => {
     // Admins have full access
-    if (req.user.role === 'admin') return true;
+    if (req.user.role === 'admin' || req.user.role === 'super-admin') return true;
 
     if (req.user.role === 'teacher') {
+      const HomeWorkModel = await req.getModel('homeworks');
+      const CoursesModel = await req.getModel('courses');
+
       let classId, courseId;
 
       if (req.method === 'POST') {
@@ -57,23 +60,29 @@ const subjectTeacherCheckOptions = {
       if (!classId || !courseId) return false;
 
       // Check if the teacher is assigned to this course in this class
-      const course = await CoursesModel.findOne({ _id: courseId, 'classAssignments.classID': classId, 'classAssignments.teacherID': req.user._id }).lean();
-      return !!course; // Returns true if a matching assignment is found, false otherwise
+      const course = await CoursesModel.findOne({
+        _id: courseId,
+        'classAssignments.classID': classId,
+        'classAssignments.teacherID': req.user._id
+      }).lean();
+      return !!course;
     }
-    return false; // Deny by default for other roles
+    return false;
   }
 };
 
-route.get("/", protect, authorize("admin"), getAllHomeworks);
+// Standardized endpoints to match slice expectations and REST conventions
+
+route.get("/", protect, authorize("admin", "teacher"), getAllHomeworks);
 
 route.get("/:id", protect, authorize("admin", "teacher", "student"), getHomeworkById);
 
 // get homeworks by classID
 route.get("/class/:classID", protect, authorize("admin", "teacher", "student"), getHomeworksByClass);
 
-// create homework
+// create homework - changed from /upload to /create to match slice thunk name logic (standardized)
 route.post(
-  "/upload",
+  "/create",
   protect,
   upload.fields([{ name: "pdf" }, { name: "image" }]),
   authorize("admin", "teacher", { ...campusCheckOptions, ...subjectTeacherCheckOptions }),

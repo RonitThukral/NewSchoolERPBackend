@@ -166,10 +166,42 @@ exports.getAllActiveStudents = async (req, res) => {
 
     const StudentModel = await req.getModel('students');
 
-    // Optimized fetch: 
-    // 1. .select() only fields needed for the table/list to reduce payload size.
-    // 2. .populate('classID', 'name') to avoid manual mapping/missing data.
-    // 3. .lean() to get POJOs instead of heavy Mongoose documents.
+    // Teacher-specific filtering: Only show students from classes they teach (main or course)
+    if (user.role === 'teacher') {
+      const ClassesModel = await req.getModel('classes');
+      const CoursesModel = await req.getModel('courses');
+
+      // Classes where teacher is main teacher
+      const mainTeacherClasses = await ClassesModel.find({ teacherID: user._id }).select('_id').lean();
+
+      // Classes where teacher teaches a course
+      const courseTeacherClasses = await CoursesModel.find({
+        'classAssignments.teacherID': user._id
+      }).select('classAssignments.classID').lean();
+
+      const classIDs = new Set(mainTeacherClasses.map(c => c._id.toString()));
+      courseTeacherClasses.forEach(course => {
+        course.classAssignments.forEach(assignment => {
+          if (assignment.classID && assignment.teacherID && assignment.teacherID.toString() === user._id.toString()) {
+            classIDs.add(assignment.classID.toString());
+          }
+        });
+      });
+
+      const data = await StudentModel.find({
+        enrollmentStatus: "active",
+        classID: { $in: Array.from(classIDs) },
+        ...campusFilter,
+      })
+        .select('name surname middleName userID gender email mobilenumber classID grade profileUrl dateofBirth physicalAddress scholarship guardian')
+        .populate('classID', 'name')
+        .sort({ createdAt: "desc" })
+        .lean();
+
+      return res.json(data);
+    }
+
+    // For admins and super admins, show all students
     const data = await StudentModel.find({
       enrollmentStatus: "active",
       ...campusFilter,
