@@ -16,7 +16,8 @@ const campusCheckOptions = {
     }
     // For updating/deleting an existing resource by _id in params
     if ((req.method === 'PUT' || req.method === 'DELETE') && req.params.id) {
-      const transaction = await TransactionsModel.findById(req.params.id).select('campusID').lean();
+      const Transactions = await req.getModel('transactions');
+      const transaction = await Transactions.findById(req.params.id).select('campusID').lean();
       return transaction?.campusID;
     }
     return null;
@@ -24,18 +25,33 @@ const campusCheckOptions = {
 };
 
 //get banking details
-route.get("/", protect, authorize("admin"), async (req, res) => {
+route.get("/", protect, authorize("admin", "teacher", "student"), async (req, res) => {
   const { user, query } = req;
   try {
+    const Transactions = await req.getModel('transactions');
     let campusFilter = {};
-    if (user.campusID) { // Campus Admin
-      const campusId = query.campusID || user.campusID?._id;
-      if (campusId) campusFilter.campusID = campusId;
-    } else if (!user.campusID && query.campusID) { // Global Admin filtering
-      campusFilter.campusID = query.campusID;
+
+    if (user.role === 'admin') {
+      if (user.campusID) {
+        const campusId = query.campusID || user.campusID?._id;
+        if (campusId) campusFilter.campusID = campusId;
+      } else if (query.campusID) {
+        campusFilter.campusID = query.campusID;
+      }
     }
 
-    const docs = await TransactionsModel.find(campusFilter).sort({ createdAt: "desc" })
+    // Add filters for studentID, teacherID, category, type if provided in query
+    if (query.studentID) campusFilter.studentID = query.studentID;
+    if (query.teacherID) campusFilter.teacherID = query.teacherID;
+    if (query.category) campusFilter.category = query.category;
+    if (query.type) campusFilter.type = query.type;
+
+    // Security: If student, they should only see their own transactions
+    if (user.role === 'student') {
+      campusFilter.studentID = user._id;
+    }
+
+    const docs = await Transactions.find(campusFilter).sort({ createdAt: "desc" })
       .populate('studentID', 'name userID classID')
       .populate('teacherID', 'name userID')
       .populate('campusID', 'name');
@@ -48,8 +64,8 @@ route.get("/", protect, authorize("admin"), async (req, res) => {
 //get one bank details
 route.get("/:id", protect, authorize("admin"), async (req, res) => {
   try {
-    // Future enhancement: Add campus check here for admins to ensure they can only access transactions from their campus.
-    const doc = await TransactionsModel.findById(req.params.id).populate('studentID teacherID campusID');
+    const Transactions = await req.getModel('transactions');
+    const doc = await Transactions.findById(req.params.id).populate('studentID teacherID campusID');
     if (!doc) return res.status(404).json({ success: false, error: "Transaction not found" });
     res.json({ success: true, transaction: doc });
   } catch (err) {
@@ -61,6 +77,7 @@ route.get("/:id", protect, authorize("admin"), async (req, res) => {
 route.get("/expenditure", protect, authorize("admin"), async (req, res) => {
   const { user, query } = req;
   try {
+    const Transactions = await req.getModel('transactions');
     let campusFilter = {};
     if (user.campusID) { // Campus Admin
       const campusId = query.campusID || user.campusID?._id;
@@ -69,7 +86,7 @@ route.get("/expenditure", protect, authorize("admin"), async (req, res) => {
       campusFilter.campusID = query.campusID;
     }
 
-    const docs = await TransactionsModel.find({ type: 'expense', ...campusFilter });
+    const docs = await Transactions.find({ type: 'expense', ...campusFilter });
     res.json(docs);
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
@@ -80,6 +97,7 @@ route.get("/expenditure", protect, authorize("admin"), async (req, res) => {
 route.get("/teachers", protect, authorize("admin"), async (req, res) => {
   const { user, query } = req;
   try {
+    const Transactions = await req.getModel('transactions');
     let campusFilter = {};
     if (user.campusID) { // Campus Admin
       const campusId = query.campusID || user.campusID?._id;
@@ -88,7 +106,7 @@ route.get("/teachers", protect, authorize("admin"), async (req, res) => {
       campusFilter.campusID = query.campusID;
     }
 
-    const docs = await TransactionsModel.find({
+    const docs = await Transactions.find({
       teacherID: { $exists: true, $ne: null },
       ...campusFilter
     })
@@ -109,11 +127,13 @@ route.get("/teacher/:userID", protect, authorize("admin", "teacher", {
   }
 }), async (req, res) => {
   try {
-    const teacher = await TeacherModel.findOne({ userID: req.params.userID }).select('_id');
+    const Teachers = await req.getModel('teachers');
+    const Transactions = await req.getModel('transactions');
+    const teacher = await Teachers.findOne({ userID: req.params.userID }).select('_id');
     if (!teacher) {
       return res.status(404).json({ success: false, error: "Teacher not found" });
     }
-    const transactions = await TransactionsModel.find({ teacherID: teacher._id })
+    const transactions = await Transactions.find({ teacherID: teacher._id })
       .populate('teacherID', 'name userID')
       .populate('campusID', 'name')
       .sort({ createdAt: 'desc' });
@@ -127,6 +147,7 @@ route.get("/teacher/:userID", protect, authorize("admin", "teacher", {
 route.get("/students", protect, authorize("admin"), async (req, res) => {
   const { user, query } = req;
   try {
+    const Transactions = await req.getModel('transactions');
     let campusFilter = {};
     if (user.campusID) { // Campus Admin
       const campusId = query.campusID || user.campusID?._id;
@@ -135,7 +156,7 @@ route.get("/students", protect, authorize("admin"), async (req, res) => {
       campusFilter.campusID = query.campusID;
     }
 
-    const docs = await TransactionsModel.find({
+    const docs = await Transactions.find({
       studentID: { $exists: true, $ne: null },
       ...campusFilter
     })
@@ -160,11 +181,14 @@ route.get("/student/:userID", protect, authorize("admin", "teacher", "student", 
   }
 }), async (req, res) => {
   try {
-    const student = await StudentModel.findOne({ userID: req.params.userID }).select('_id');
+    const Students = await req.getModel('students');
+    const Transactions = await req.getModel('transactions');
+
+    const student = await Students.findOne({ userID: req.params.userID }).select('_id');
     if (!student) {
       return res.status(404).json({ success: false, error: "Student not found" });
     }
-    const transactions = await TransactionsModel.find({ studentID: student._id })
+    const transactions = await Transactions.find({ studentID: student._id })
       .populate({
         path: 'studentID',
         select: 'name userID classID',
@@ -180,12 +204,14 @@ route.get("/student/:userID", protect, authorize("admin", "teacher", "student", 
 
 route.post("/create", protect, authorize("admin", campusCheckOptions), async (req, res) => {
   try {
-    const data = await TransactionsModel.create(req.body);
+    const Transactions = await req.getModel('transactions');
+    const Students = await req.getModel('students');
+    const data = await Transactions.create(req.body);
 
     if (data) {
       // Only send SMS if it's a student transaction
       if (data.studentID) {
-        const student = await StudentModel.findById(data.studentID);
+        const student = await Students.findById(data.studentID);
 
         if (student && student.mobilenumber) {
           // send payment sms
@@ -210,7 +236,8 @@ route.post("/create", protect, authorize("admin", campusCheckOptions), async (re
 //update class register
 route.put("/update/:id", protect, authorize("admin", campusCheckOptions), async (req, res) => {
   try {
-    const updatedTransaction = await TransactionsModel.findByIdAndUpdate(
+    const Transactions = await req.getModel('transactions');
+    const updatedTransaction = await Transactions.findByIdAndUpdate(
       req.params.id,
       req.body,
       { new: true, runValidators: true }
@@ -229,7 +256,8 @@ route.put("/update/:id", protect, authorize("admin", campusCheckOptions), async 
 //delete
 route.delete("/delete/:id", protect, authorize("admin", campusCheckOptions), async (req, res) => {
   try {
-    const deletedTransaction = await TransactionsModel.findByIdAndDelete(req.params.id);
+    const Transactions = await req.getModel('transactions');
+    const deletedTransaction = await Transactions.findByIdAndDelete(req.params.id);
     if (!deletedTransaction) {
       return res.status(404).json({ success: false, error: "Transaction not found" });
     }

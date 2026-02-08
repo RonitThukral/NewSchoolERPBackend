@@ -123,3 +123,18 @@ exports.deleteFeeById = async (req, res) => {
     res.status(500).json({ success: false, error: "Server Error" });
   }
 };
+
+exports.getStudentFees = async (req, res) => {
+  const { classID } = req.params;
+  try {
+    const FeesModel = await req.getModel('fees');
+    // Find all fee structures applicable to this class
+    const docs = await FeesModel.find({ applicableClasses: classID })
+      .populate('campusID', 'name')
+      .sort({ createdAt: "desc" });
+    res.json({ success: true, docs });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ success: false, error: "Server Error" });
+  }
+};

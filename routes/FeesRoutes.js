@@ -34,6 +34,10 @@ route.get("/", protect, authorize("admin", "teacher"), getAllFees);
 
 route.get("/types", protect, getFeeTypes);
 
+// Get fees for a specific class (Student Portal)
+const { getStudentFees } = require("../controllers/feesController");
+route.get("/student/class/:classID", protect, authorize("admin", "teacher", "student"), getStudentFees);
+
 //get one class fees
 route.get("/:id", protect, authorize("admin", "teacher"), getFeeById);
 

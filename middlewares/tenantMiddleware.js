@@ -69,6 +69,18 @@ const identifyTenant = (req, res, next) => {
         console.log(`Tenant identified from body: ${tenantId}`);
     }
 
+    // Strategy 5: Check merchantTransactionId or txn for tenant prefix (e.g., Ttenantid_TXN...)
+    if (!tenantId) {
+        const txnId = req.query.txn || req.query.merchantTransactionId || (req.body && (req.body.txn || req.body.merchantTransactionId));
+        if (txnId && typeof txnId === 'string' && txnId.startsWith('T')) {
+            const match = txnId.match(/^T([^_]+)_/);
+            if (match) {
+                tenantId = match[1];
+                console.log(`Tenant identified from transaction prefix: ${tenantId}`);
+            }
+        }
+    }
+
     // If no tenant identified, use default
     if (!tenantId) {
         tenantId = 'default';

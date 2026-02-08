@@ -89,6 +89,29 @@ const TransactionSchema = new Schema(
     month: { // For monthly things like payroll
       type: String,
     },
+
+    // --- Online Payment Tracking ---
+    merchantTransactionId: {
+      type: String,
+      unique: true,
+      sparse: true,
+    },
+    status: {
+      type: String, // PENDING, SUCCESS, FAILED
+      default: 'SUCCESS', // Default to SUCCESS for manual entries
+    },
+    phonepeTransactionId: {
+      type: String,
+    },
+    phonepeData: {
+      type: Object,
+    },
+    callbackData: {
+      type: Object,
+    },
+    completedAt: {
+      type: Date,
+    },
   },
   {
     timestamps: true,

@@ -45,7 +45,7 @@
 // const generateAccessToken = async () => {
 //   try {
 //     const tokenUrl = `${PHONEPE_BASE_URL}/v1/oauth/token`;
-    
+
 //     const tokenPayload = {
 //       grant_type: 'client_credentials',
 //       client_id: PHONEPE_CLIENT_ID,
@@ -75,7 +75,7 @@
 //   try {
 //     console.log('=== PHONEPE BUSINESS API PAYMENT INITIATION ===');
 //     console.log('Request Body:', JSON.stringify(req.body, null, 2));
-    
+
 //     const { studentId, amount, academicYear, term } = req.body;
 
 //     // Input validation
@@ -99,7 +99,7 @@
 //     const student = await StudentModel.findOne({ userID: studentId }) || 
 //                    await StudentModel.findOne({ _id: studentId }) ||
 //                    await StudentModel.findById(studentId);
-    
+
 //     if (!student) {
 //       return res.status(404).json({ 
 //         success: false, 
@@ -147,7 +147,7 @@
 
 //     // Encode payload to base64
 //     const base64Payload = Buffer.from(JSON.stringify(paymentPayload)).toString('base64');
-    
+
 //     // Generate checksum
 //     const endpoint = '/pg/v1/pay';
 //     const checksum = generateBusinessChecksum(base64Payload, endpoint);
@@ -179,7 +179,7 @@
 
 //     // Check if payment initiation was successful
 //     if (response.data.success && response.data.data?.instrumentResponse?.redirectInfo?.url) {
-      
+
 //       // Save transaction to database
 //       const transaction = await TransactionsModel.create({
 //         merchantTransactionId: merchantTransactionId,
@@ -241,7 +241,7 @@
 
 //   } catch (error) {
 //     console.error("❌ PAYMENT INITIATION ERROR:", error);
-    
+
 //     if (error.response) {
 //       console.error("API Error Response:", error.response.data);
 //       return res.status(500).json({
@@ -251,7 +251,7 @@
 //         status: error.response.status
 //       });
 //     }
-    
+
 //     return res.status(500).json({
 //       success: false,
 //       error: "Internal server error",
@@ -313,7 +313,7 @@
 //       transaction.phonepeTransactionId = transactionId || data?.transactionId;
 //       transaction.completedAt = new Date();
 //       transaction.callbackData = decodedPayload;
-      
+
 //       await transaction.save();
 //       console.log('✅ Payment marked as SUCCESS');
 
@@ -322,14 +322,14 @@
 //       transaction.description = message || `Payment failed: ${code}`;
 //       transaction.completedAt = new Date();
 //       transaction.callbackData = decodedPayload;
-      
+
 //       await transaction.save();
 //       console.log('❌ Payment marked as FAILED:', code);
 //     }
 
 //     // Send OK response to PhonePe
 //     res.status(200).send("OK");
-    
+
 //   } catch (error) {
 //     console.error("❌ CALLBACK PROCESSING ERROR:", error);
 //     res.status(500).send("Callback processing error");
@@ -403,7 +403,7 @@
 
 //   } catch (error) {
 //     console.error("❌ STATUS CHECK ERROR:", error);
-    
+
 //     if (error.response) {
 //       return res.status(500).json({
 //         success: false,
@@ -411,7 +411,7 @@
 //         details: error.response.data
 //       });
 //     }
-    
+
 //     return res.status(500).json({
 //       success: false,
 //       error: "Status check failed",
@@ -424,7 +424,7 @@
 // exports.handleRedirect = async (req, res) => {
 //   try {
 //     const { txn } = req.query;
-    
+
 //     console.log('=== REDIRECT RECEIVED ===');
 //     console.log('Transaction ID:', txn);
 
@@ -596,34 +596,38 @@ exports.initiatePayment = async (req, res) => {
   try {
     console.log('=== PHONEPE OFFICIAL TEST API PAYMENT INITIATION ===');
     console.log('Request Body:', JSON.stringify(req.body, null, 2));
-    
-    const { studentId, amount, academicYear, term } = req.body;
 
-    // Input validation
-    if (!studentId || !amount || !academicYear || !term) {
-      return res.status(400).json({ 
-        success: false, 
+    const { studentId, amount, academicYear, term, paymentType, description } = req.body;
+
+    // Input validation (term is optional)
+    if (!studentId || !amount || !academicYear) {
+      return res.status(400).json({
+        success: false,
         error: "Missing required fields",
-        required: ["studentId", "amount", "academicYear", "term"],
+        required: ["studentId", "amount", "academicYear"],
         received: req.body
       });
     }
 
     if (amount <= 0 || amount > 100000) {
-      return res.status(400).json({ 
-        success: false, 
-        error: "Amount must be between ₹1 and ₹1,00,000" 
+      return res.status(400).json({
+        success: false,
+        error: "Amount must be between ₹1 and ₹1,00,000"
       });
     }
 
+    // Get multi-tenant aware models
+    const Students = await req.getModel('students');
+    const Transactions = await req.getModel('transactions');
+
     // Find student in database
-    const student = await StudentModel.findOne({ userID: studentId }) || 
-                   await StudentModel.findOne({ _id: studentId }) ||
-                   await StudentModel.findById(studentId);
-    
+    const student = await Students.findOne({ userID: studentId }) ||
+      await Students.findOne({ _id: studentId }) ||
+      await Students.findById(studentId);
+
     if (!student) {
-      return res.status(404).json({ 
-        success: false, 
+      return res.status(404).json({
+        success: false,
         error: "Student not found with ID: " + studentId,
         hint: "Make sure the student exists in your database"
       });
@@ -631,16 +635,17 @@ exports.initiatePayment = async (req, res) => {
 
     console.log('Found Student:', student.name || student._id);
 
-    // Generate unique transaction ID
-    const merchantTransactionId = `TXN${Date.now()}${Math.random().toString(36).substr(2, 5).toUpperCase()}`;
+    // Generate unique transaction ID with tenant prefix for robust identification in callbacks/redirects
+    const tenantPrefix = req.tenantId && req.tenantId !== 'default' ? `T${req.tenantId}_` : '';
+    const merchantTransactionId = `${tenantPrefix}TXN${Date.now()}${Math.random().toString(36).substr(2, 5).toUpperCase()}`;
     const paymentAmount = Math.round(amount * 100); // Convert to paise
 
     // Get mobile number
-    const mobileNumber = student.guardian?.[0]?.mobile || 
-                        student.mobilenumber || 
-                        student.mobile || 
-                        student.phone ||
-                        '9999999999';
+    const mobileNumber = student.guardian?.[0]?.mobile ||
+      student.mobilenumber ||
+      student.mobile ||
+      student.phone ||
+      '9999999999';
 
     console.log('Payment Details:', {
       merchantTransactionId,
@@ -649,16 +654,19 @@ exports.initiatePayment = async (req, res) => {
     });
 
     // Create payment payload (Official Format)
+    const isQR = paymentType === 'qr';
     const paymentPayload = {
       merchantId: PHONEPE_MERCHANT_ID,
       merchantTransactionId: merchantTransactionId,
       merchantUserId: `USER${student.userID || student._id}`,
       amount: paymentAmount,
-      redirectUrl: `${BASE_URL}/api/payment/redirect?txn=${merchantTransactionId}`,
+      redirectUrl: `${BASE_URL}/api/payment/redirect?txn=${merchantTransactionId}&tenant=${req.tenantId || 'default'}`,
       redirectMode: "GET",
-      callbackUrl: `${BASE_URL}/api/payment/callback`,
+      callbackUrl: `${BASE_URL}/api/payment/callback?tenant=${req.tenantId || 'default'}`,
       mobileNumber: mobileNumber,
-      paymentInstrument: {
+      paymentInstrument: isQR ? {
+        type: "UPI_QR"
+      } : {
         type: "PAY_PAGE"
       }
     };
@@ -668,7 +676,7 @@ exports.initiatePayment = async (req, res) => {
 
     // Encode payload to base64
     const base64Payload = Buffer.from(JSON.stringify(paymentPayload)).toString('base64');
-    
+
     // Generate checksum
     const endpoint = '/pg/v1/pay';
     const checksum = generateChecksum(base64Payload, endpoint);
@@ -689,7 +697,7 @@ exports.initiatePayment = async (req, res) => {
     const response = await axios.post(
       `${PHONEPE_BASE_URL}${endpoint}`,
       { request: base64Payload },
-      { 
+      {
         headers,
         timeout: 30000
       }
@@ -698,42 +706,63 @@ exports.initiatePayment = async (req, res) => {
     console.log('=== PHONEPE API RESPONSE ===');
     console.log(JSON.stringify(response.data, null, 2));
 
-    // Check if payment initiation was successful
-    if (response.data.success && response.data.data?.instrumentResponse?.redirectInfo?.url) {
-      
-      // Save transaction to database
-      const transaction = await TransactionsModel.create({
-        merchantTransactionId: merchantTransactionId,
-        studentID: student._id,
-        campusID: student.campusID,
-        amount: amount,
-        netAmount: amount,
-        category: 'fees',
-        type: 'income',
-        status: 'PENDING',
-        academicYear: academicYear,
-        term: term,
-        paymentMethod: 'online_gateway',
-        description: `Fee payment for ${student.name || student.userID} - ${academicYear} ${term}`,
-        createdAt: new Date(),
-        phonepeData: {
-          merchantTransactionId: merchantTransactionId,
-          amount: paymentAmount,
-          mobileNumber: mobileNumber,
-          merchantId: PHONEPE_MERCHANT_ID
-        }
-      });
+    const instrumentResponse = response.data.data?.instrumentResponse;
+    const paymentUrl = instrumentResponse?.redirectInfo?.url;
+    const qrData = instrumentResponse?.qrData;
 
-      console.log('✅ Transaction saved to database:', transaction._id);
+    // Check if payment initiation was successful
+    if (response.data.success && (paymentUrl || qrData)) {
+
+      let transactionId = merchantTransactionId; // Default fallback
+
+      try {
+        // Fallback for campusID if missing (ensure transaction is saveable)
+        const campusID = student.campusID || (await (await req.getModel('campus')).findOne().select('_id'));
+
+        if (!campusID) {
+          console.warn('Warning: No campusID found for student or default campus. Payment initiation might fail if campusID is required.');
+        }
+
+        // Save transaction to database
+        const transaction = await Transactions.create({
+          merchantTransactionId: merchantTransactionId,
+          studentID: student._id,
+          campusID: campusID, // Use fallback
+          amount: amount,
+          netAmount: amount,
+          category: 'fees',
+          type: 'income',
+          status: 'PENDING',
+          academicYear: academicYear,
+          term: term,
+          paymentMethod: 'online_gateway',
+          description: description || `Fee payment for ${student.name || student.userID} - ${academicYear} ${term}`,
+          createdAt: new Date(),
+          phonepeData: {
+            merchantTransactionId: merchantTransactionId,
+            amount: paymentAmount,
+            mobileNumber: mobileNumber,
+            merchantId: PHONEPE_MERCHANT_ID
+          }
+        });
+
+        transactionId = transaction._id;
+        console.log('✅ Transaction saved to database:', transaction._id);
+
+      } catch (dbError) {
+        console.error('❌ Database save failed during payment initiation:', dbError);
+        // We continue because the user should still get the payment URL even if DB save failed locally
+      }
 
       // Return success response
       return res.json({
         success: true,
-        message: "Payment initiated successfully with PhonePe Official Test Credentials",
+        message: `Payment initiated successfully with PhonePe Official Test Credentials (${isQR ? 'QR CODE' : 'PAY PAGE'})`,
         data: {
-          transactionId: transaction._id,
+          transactionId: transactionId,
           merchantTransactionId: merchantTransactionId,
-          paymentUrl: response.data.data.instrumentResponse.redirectInfo.url,
+          paymentUrl: response.data.data?.instrumentResponse?.redirectInfo?.url,
+          qrData: response.data.data?.instrumentResponse?.qrData,
           amount: amount,
           amountInPaise: paymentAmount,
           studentName: student.name || student.userID,
@@ -762,7 +791,7 @@ exports.initiatePayment = async (req, res) => {
 
   } catch (error) {
     console.error("PAYMENT INITIATION ERROR:", error);
-    
+
     if (error.response) {
       console.error("API Error Response:", error.response.data);
       return res.status(500).json({
@@ -772,11 +801,12 @@ exports.initiatePayment = async (req, res) => {
         status: error.response.status
       });
     }
-    
+
     return res.status(500).json({
       success: false,
       error: "Internal server error",
       message: error.message,
+      phonepeError: error.response?.data,
       stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
     });
   }
@@ -809,17 +839,18 @@ exports.handleCallback = async (req, res) => {
     console.log('=== DECODED CALLBACK PAYLOAD ===');
     console.log(JSON.stringify(decodedPayload, null, 2));
 
-    const { 
-      merchantTransactionId, 
+    const {
+      merchantTransactionId,
       transactionId,
-      success, 
-      code, 
+      success,
+      code,
       message,
-      data 
+      data
     } = decodedPayload;
 
-    // Find transaction in database
-    const transaction = await TransactionsModel.findOne({ merchantTransactionId });
+    // Find transaction in database (Tenant Aware)
+    const Transactions = await req.getModel('transactions');
+    const transaction = await Transactions.findOne({ merchantTransactionId });
     if (!transaction) {
       console.error(`Transaction not found: ${merchantTransactionId}`);
       return res.status(404).send("Transaction not found");
@@ -834,7 +865,7 @@ exports.handleCallback = async (req, res) => {
       transaction.phonepeTransactionId = transactionId || data?.transactionId;
       transaction.completedAt = new Date();
       transaction.callbackData = decodedPayload;
-      
+
       await transaction.save();
       console.log('Payment marked as SUCCESS');
 
@@ -843,14 +874,14 @@ exports.handleCallback = async (req, res) => {
       transaction.description = message || `Payment failed: ${code}`;
       transaction.completedAt = new Date();
       transaction.callbackData = decodedPayload;
-      
+
       await transaction.save();
       console.log('Payment marked as FAILED:', code);
     }
 
     // Send OK response to PhonePe
     res.status(200).send("OK");
-    
+
   } catch (error) {
     console.error("CALLBACK PROCESSING ERROR:", error);
     res.status(500).send("Callback processing error");
@@ -872,8 +903,9 @@ exports.checkPaymentStatus = async (req, res) => {
       });
     }
 
-    // Get local transaction from database
-    const localTransaction = await TransactionsModel.findOne({ merchantTransactionId })
+    // Get local transaction from database (Tenant Aware)
+    const Transactions = await req.getModel('transactions');
+    const localTransaction = await Transactions.findOne({ merchantTransactionId })
       .populate('studentID', 'name userID');
 
     if (!localTransaction) {
@@ -902,6 +934,19 @@ exports.checkPaymentStatus = async (req, res) => {
 
     console.log('PhonePe Status Response:', JSON.stringify(response.data, null, 2));
 
+    // Update DB status if PhonePe says it's successful
+    if (response.data.success && response.data.code === "PAYMENT_SUCCESS") {
+      localTransaction.status = "SUCCESS";
+      localTransaction.phonepeTransactionId = response.data.data?.transactionId;
+      localTransaction.completedAt = new Date();
+      await localTransaction.save();
+      console.log('Status Check: DB updated to SUCCESS');
+    } else if (response.data.code === "PAYMENT_ERROR" || response.data.code === "INTERNAL_SERVER_ERROR") {
+      localTransaction.status = "FAILED";
+      await localTransaction.save();
+      console.log('Status Check: DB updated to FAILED');
+    }
+
     return res.json({
       success: true,
       data: {
@@ -923,7 +968,7 @@ exports.checkPaymentStatus = async (req, res) => {
 
   } catch (error) {
     console.error("STATUS CHECK ERROR:", error);
-    
+
     if (error.response) {
       return res.status(500).json({
         success: false,
@@ -931,7 +976,7 @@ exports.checkPaymentStatus = async (req, res) => {
         details: error.response.data
       });
     }
-    
+
     return res.status(500).json({
       success: false,
       error: "Status check failed",
@@ -943,73 +988,79 @@ exports.checkPaymentStatus = async (req, res) => {
 // 4. REDIRECT HANDLER
 exports.handleRedirect = async (req, res) => {
   try {
-    const { txn } = req.query;
-    
+    let txn = req.query.txn || req.body.txn;
+
+    // Handle PhonePe POST redirect payload
+    if (!txn && req.body.response) {
+      try {
+        const decoded = JSON.parse(Buffer.from(req.body.response, 'base64').toString());
+        txn = decoded.merchantTransactionId || decoded.data?.merchantTransactionId;
+        console.log('Decoded txn from POST response payload:', txn);
+      } catch (e) {
+        console.warn('Could not decode redirect response body:', e.message);
+      }
+    }
+
     console.log('=== REDIRECT RECEIVED ===');
-    console.log('Transaction ID:', txn);
+    console.log('Method:', req.method);
+    console.log('Transaction ID (txn):', txn);
+    console.log('Referer:', req.headers.referer);
 
     if (!txn) {
-      return res.send(`
-        <html><body style="font-family: Arial; text-align: center; padding: 50px;">
-          <h2>Error</h2>
-          <p>Missing transaction ID</p>
-        </body></html>
-      `);
+      console.warn('Warning: No txn found in redirect request.');
+      const frontendBaseUrl = process.env.CORS_URL || 'http://localhost:3000';
+      return res.redirect(`${frontendBaseUrl}/student/fees?status=UNKNOWN`);
     }
 
-    const transaction = await TransactionsModel.findOne({ 
-      merchantTransactionId: txn 
-    }).populate('studentID');
+    const Transactions = await req.getModel('transactions');
+    let transaction = await Transactions.findOne({
+      merchantTransactionId: txn
+    });
 
-    if (!transaction) {
-      return res.send(`
-        <html><body style="font-family: Arial; text-align: center; padding: 50px;">
-          <h2>Transaction Not Found</h2>
-          <p>Transaction ID: ${txn}</p>
-        </body></html>
-      `);
+    // If transaction is still pending, double check with PhonePe
+    if (transaction && transaction.status === 'PENDING') {
+      try {
+        const checkEndpoint = `/pg/v1/status/${PHONEPE_MERCHANT_ID}/${txn}`;
+        const checksum = generateChecksum('', checkEndpoint);
+        const headers = {
+          'Content-Type': 'application/json',
+          'X-VERIFY': checksum,
+          'X-MERCHANT-ID': PHONEPE_MERCHANT_ID,
+          'accept': 'application/json'
+        };
+        const statusResponse = await axios.get(`${PHONEPE_BASE_URL}${checkEndpoint}`, { headers, timeout: 5000 });
+
+        if (statusResponse.data.success && statusResponse.data.code === "PAYMENT_SUCCESS") {
+          transaction.status = "SUCCESS";
+          transaction.phonepeTransactionId = statusResponse.data.data?.transactionId;
+          transaction.completedAt = new Date();
+          await transaction.save();
+        }
+      } catch (stError) {
+        console.error('Background status check failed in redirect:', stError.message);
+      }
     }
 
-    const statusColor = transaction.status === 'SUCCESS' ? '#28a745' : 
-                       transaction.status === 'FAILED' ? '#dc3545' : '#ffc107';
-    const statusIcon = transaction.status === 'SUCCESS' ? '✓' : 
-                       transaction.status === 'FAILED' ? '✗' : '⏳';
+    // Frontend URL for redirection
+    const frontendBaseUrl = process.env.CORS_URL || 'http://localhost:3000';
+    const finalStatus = transaction?.status || 'PENDING';
+    const redirectTarget = `${frontendBaseUrl}/student/fees?status=${finalStatus}&txn=${txn}`;
 
-    const html = `
-      <html>
-        <head><title>PhonePe - Payment ${transaction.status}</title></head>
-        <body style="font-family: Arial; text-align: center; padding: 50px;">
-          <div style="max-width: 500px; margin: 0 auto; border: 2px solid ${statusColor}; padding: 30px; border-radius: 10px;">
-            <h1 style="color: ${statusColor};">${statusIcon} Payment ${transaction.status}</h1>
-            <p><strong>Transaction ID:</strong> ${transaction._id}</p>
-            <p><strong>PhonePe TXN:</strong> ${transaction.merchantTransactionId}</p>
-            <p><strong>Amount:</strong> ₹${transaction.amount}</p>
-            <p><strong>Student:</strong> ${transaction.studentID?.name || 'N/A'}</p>
-            <p><strong>Academic Year:</strong> ${transaction.academicYear}</p>
-            <p><strong>Term:</strong> ${transaction.term}</p>
-            <p><strong>API Used:</strong> PhonePe Official Test</p>
-            <p><strong>Date:</strong> ${transaction.createdAt.toLocaleString()}</p>
-          </div>
-        </body>
-      </html>
-    `;
+    console.log('Redirecting user to:', redirectTarget);
+    return res.redirect(redirectTarget);
 
-    res.send(html);
   } catch (error) {
     console.error("REDIRECT ERROR:", error);
-    res.status(500).send(`
-      <html><body style="font-family: Arial; text-align: center; padding: 50px;">
-        <h2>Error</h2>
-        <p>Something went wrong processing the redirect</p>
-      </body></html>
-    `);
+    const frontendBaseUrl = process.env.CORS_URL || 'http://localhost:3000';
+    res.redirect(`${frontendBaseUrl}/student/fees?status=ERROR`);
   }
 };
 
 // 5. GET ALL TRANSACTIONS
 exports.getAllTransactions = async (req, res) => {
   try {
-    const transactions = await TransactionsModel.find()
+    const Transactions = await req.getModel('transactions');
+    const transactions = await Transactions.find()
       .populate('studentID', 'name userID')
       .sort({ createdAt: -1 })
       .limit(20);

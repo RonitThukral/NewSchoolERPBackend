@@ -26,6 +26,19 @@ exports.getAllQuizzes = async (req, res) => {
       return res.json(docs);
     }
 
+    // Student-specific filtering: Only show quizzes for their class
+    if (user.role === 'student') {
+      const studentClassID = user.classID?._id || user.classID;
+      if (!studentClassID) return res.json([]);
+
+      const docs = await QuizModel.find({ classID: studentClassID })
+        .populate('classID', 'name')
+        .populate('courseID', 'name')
+        .populate('campusID', 'name')
+        .sort({ createdAt: "desc" });
+      return res.json(docs);
+    }
+
     // Build the campus filter based on user role (for admins)
     let campusFilter = {};
     if (user.campusID) { // This is a Campus Admin

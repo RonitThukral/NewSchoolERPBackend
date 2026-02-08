@@ -4,6 +4,7 @@ const { role } = require("../middlewares/variables");
 const fs = require("fs");
 const csv = require("csv-parser");
 const xlsx = require("xlsx");
+const jwt = require("jsonwebtoken");
 
 exports.parseStudentFileHeaders = (req, res) => {
   if (!req.file) {
@@ -474,6 +475,15 @@ exports.createStudent = async (req, res) => {
   }
 };
 
+const getSignedJwtToken = function (id, role, campusID) {
+  if (!process.env.JWT_SECRET) {
+    throw new Error('JWT_SECRET is not defined in your .env file');
+  }
+  return jwt.sign({ id, role, campusID }, process.env.JWT_SECRET, {
+    expiresIn: process.env.JWT_EXPIRES_IN,
+  });
+};
+
 exports.signInStudent = async (req, res) => {
   const { error } = login.validate(req.body);
   if (error) {
@@ -492,10 +502,18 @@ exports.signInStudent = async (req, res) => {
     if (user) {
       const isMatch = await bcrypt.compare(req.body.password, user.password);
       if (isMatch) {
-        return res.json({ success: true, student: user });
+        // Generate Token
+        // Students have a campusID. If it's an object, get _id, else it's already an ID/null.
+        const campusID = user.campusID && user.campusID._id ? user.campusID._id : user.campusID;
+        const token = getSignedJwtToken(user._id, user.role || 'student', campusID);
+
+        const userObject = user.toObject ? user.toObject() : user;
+        delete userObject.password;
+
+        return res.json({ success: true, token, user: userObject });
       }
     }
-    res.status(401).json({ error: "Wrong Password or Student ID" });
+    res.status(401).json({ success: false, error: "Wrong Password or Student ID" });
   } catch (err) {
     res.status(500).json({ error: "Something went wrong" });
   }
