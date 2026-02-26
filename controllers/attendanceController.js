@@ -236,7 +236,7 @@ exports.createOrUpdateStaffAttendance = async (req, res) => {
 
     // The `upsert: true` option will create a new document if one doesn't exist for the campus and date.
     const doc = await AttendanceModel.findOneAndUpdate(
-      { campusID, date, attendeeType: "staff" },
+      { campusID, date, attendeeType: "teachers" },
       {
         $set: {
           campusID,
@@ -246,7 +246,7 @@ exports.createOrUpdateStaffAttendance = async (req, res) => {
           term,
           recordedBy,
           recordedByType,
-          attendeeType: "staff"
+          attendeeType: "teachers"
         }
       },
       { new: true, upsert: true, runValidators: true }
